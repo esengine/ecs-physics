@@ -1,0 +1,9 @@
+"scripts": {
+    "commitmsg": "commitlint -e $GIT_PARAMS",
+
+ },
+ "config": {
+    "commitizen": {
+      "path": "cz-customizable"
+    }
+  },
