@@ -64,5 +64,55 @@ module physics {
             // TODO: shouldCollide
             // if (bodyB.sh)
         }
+
+        public findNewContacts() {
+            // this.broadPhase.
+            // TODO: updatePairs
+        }
+
+        public destroy(contact: Contact) {
+            let fixtureA = contact.fixtureA;
+            let fixtureB = contact.fixtureB;
+            let bodyA = fixtureA.body;
+            let bodyB = fixtureB.body;
+
+            if (contact.isTouching) {
+                if (fixtureA != null && fixtureA.onSeperation != null) {
+                    fixtureA.onSeperation.forEach(func => func(fixtureA, fixtureB));
+                }
+
+                if (fixtureB != null && fixtureB.onSeperation != null)
+                    fixtureB.onSeperation.forEach(func => func(fixtureB, fixtureA));
+
+                if (this.onEndContact != null)
+                    this.onEndContact.forEach(func => func(contact));
+            }
+
+            new es.List(this.contactList).remove(contact);
+
+            if (contact._nodeA.prev != null)
+                contact._nodeA.prev.next = contact._nodeA.next;
+
+            if (contact._nodeA.next != null)
+                contact._nodeA.next.prev = contact._nodeA.prev;
+
+            if (contact._nodeA == bodyA.contactList)
+                bodyA.contactList = contact._nodeA.next;
+
+            if (contact._nodeB.prev != null)
+                contact._nodeB.prev.next = contact._nodeB.next;
+
+            if (contact._nodeB.next != null)
+                contact._nodeB.next.prev = contact._nodeB.prev;
+
+            if (contact._nodeB == bodyB.contactList)
+                bodyB.contactList = contact._nodeB.next;
+
+            if (this.activeContacts.has(contact)) {
+                this.activeContacts.delete(contact);
+            }
+
+            contact.destroy();
+        }
     }
 }

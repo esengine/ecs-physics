@@ -513,5 +513,46 @@ module physics {
                 // world.add
                 // TODO: addbody
         }
+
+        public resetDynamics() {
+            this._torque = 0;
+            this._angularVelocity = 0;
+            this._force = es.Vector2.zero;
+            this._linearVelocity = es.Vector2.zero;
+        }
+
+        public createFixture(shape: Shape, userData = null) {
+            return new Fixture(this, shape, userData);
+        }
+
+        public destroyFixture(fixture: Fixture) {
+            console.assert(fixture.body == this);
+            console.assert(this.fixtureList.length > 0);
+            console.assert(new es.List(this.fixtureList).contains(fixture));
+
+            let edge = this.contactList;
+            while (edge != null) {
+                let c = edge.contact;
+                edge = edge.next;
+
+                let fixtureA = c.fixtureA;
+                let fixtureB = c.fixtureB;
+
+                if (fixture == fixtureA || fixture == fixtureB) {
+                    this._world.contactManager.destroy(c);
+                }
+            }
+
+            if (this._enabled){
+                let broadPhase = this._world.contactManager.broadPhase;
+                // TODO: destoryProxies
+            }
+            
+            new es.List(this.fixtureList).remove(fixture);
+            // TODO: fixture.destory
+            fixture.body = null;
+
+            // TODO: resetMassData
+        }
     }
 }

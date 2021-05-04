@@ -45,5 +45,13 @@ module physics {
          * 在给定随机输入的情况下，这会使引擎更稳定，但是如果多边形的创建速度更为重要，则可能需要将其设置为false。 
          */
         public static useConvexHullPolygons = true;
+
+        public static mixFriction(friction1: number, friction2: number) {
+            return Math.sqrt(friction1 * friction2);
+        }
+
+        public static mixRestitution(restitution1: number, restitution2: number) {
+            return restitution1 > restitution2 ? restitution1 : restitution2;
+        }
     }
 }

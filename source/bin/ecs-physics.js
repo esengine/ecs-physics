@@ -262,6 +262,12 @@ var physics;
     var Settings = /** @class */ (function () {
         function Settings() {
         }
+        Settings.mixFriction = function (friction1, friction2) {
+            return Math.sqrt(friction1 * friction2);
+        };
+        Settings.mixRestitution = function (restitution1, restitution2) {
+            return restitution1 > restitution2 ? restitution1 : restitution2;
+        };
         Settings.maxFloat = 3.402823466e+38;
         Settings.epsilon = 1.192092896e-07;
         Settings.pi = 3.14159265359;
@@ -2605,6 +2611,39 @@ var physics;
             for (var i = 0; i < this.fixtureList.length; i++)
                 new es.List(this.fixtureList[i].onSeperation).remove(value);
         };
+        Body.prototype.resetDynamics = function () {
+            this._torque = 0;
+            this._angularVelocity = 0;
+            this._force = es.Vector2.zero;
+            this._linearVelocity = es.Vector2.zero;
+        };
+        Body.prototype.createFixture = function (shape, userData) {
+            if (userData === void 0) { userData = null; }
+            return new physics.Fixture(this, shape, userData);
+        };
+        Body.prototype.destroyFixture = function (fixture) {
+            console.assert(fixture.body == this);
+            console.assert(this.fixtureList.length > 0);
+            console.assert(new es.List(this.fixtureList).contains(fixture));
+            var edge = this.contactList;
+            while (edge != null) {
+                var c = edge.contact;
+                edge = edge.next;
+                var fixtureA = c.fixtureA;
+                var fixtureB = c.fixtureB;
+                if (fixture == fixtureA || fixture == fixtureB) {
+                    this._world.contactManager.destroy(c);
+                }
+            }
+            if (this._enabled) {
+                var broadPhase = this._world.contactManager.broadPhase;
+                // TODO: destoryProxies
+            }
+            new es.List(this.fixtureList).remove(fixture);
+            // TODO: fixture.destory
+            fixture.body = null;
+            // TODO: resetMassData
+        };
         return Body;
     }());
     physics.Body = Body;
@@ -2635,14 +2674,41 @@ var physics;
                     var maxImpulse = 0;
                     var count = contact.manifold.pointCount;
                     for (var i = 0; i < count; ++i) {
-                        // maxImpulse = Math.max(maxImpulse, impulse.)
-                        // TODO: impulse.points
+                        maxImpulse = Math.max(maxImpulse, impulse.points[i].normalImpulse);
                     }
                     if (maxImpulse > this.strength) {
                         this._break = true;
                     }
                 }
             }
+        };
+        BreakableBody.prototype.update = function () {
+            if (this._break) {
+                this.decompose();
+                this.isBroken = true;
+                this._break = false;
+            }
+            if (this.isBroken == false) {
+                if (this.parts.length > this._angularVelocitiesCache.length) {
+                    this._velocitiesCache = [];
+                    this._angularVelocitiesCache = [];
+                }
+                for (var i = 0; i < this.parts.length; i++) {
+                    this._velocitiesCache[i] = this.parts[i].body.linearVelocity;
+                    this._angularVelocitiesCache[i] = this.parts[i].body.angularVelocity;
+                }
+            }
+        };
+        BreakableBody.prototype.decompose = function () {
+            new es.List(this._world.contactManager.onPostSolve).remove(this.onPostSolve);
+            for (var i = 0; i < this.parts.length; i++) {
+                var oldFixture = this.parts[i];
+                var shape = oldFixture.shape.clone();
+                var userData = oldFixture.userData;
+                this.mainBody.destroyFixture(oldFixture);
+                // TODO: BodyFactory
+            }
+            // TODO: removeBody
         };
         return BreakableBody;
     }());
@@ -2690,6 +2756,42 @@ var physics;
             // TODO: shouldCollide
             // if (bodyB.sh)
         };
+        ContactManager.prototype.findNewContacts = function () {
+            // this.broadPhase.
+            // TODO: updatePairs
+        };
+        ContactManager.prototype.destroy = function (contact) {
+            var fixtureA = contact.fixtureA;
+            var fixtureB = contact.fixtureB;
+            var bodyA = fixtureA.body;
+            var bodyB = fixtureB.body;
+            if (contact.isTouching) {
+                if (fixtureA != null && fixtureA.onSeperation != null) {
+                    fixtureA.onSeperation.forEach(function (func) { return func(fixtureA, fixtureB); });
+                }
+                if (fixtureB != null && fixtureB.onSeperation != null)
+                    fixtureB.onSeperation.forEach(function (func) { return func(fixtureB, fixtureA); });
+                if (this.onEndContact != null)
+                    this.onEndContact.forEach(function (func) { return func(contact); });
+            }
+            new es.List(this.contactList).remove(contact);
+            if (contact._nodeA.prev != null)
+                contact._nodeA.prev.next = contact._nodeA.next;
+            if (contact._nodeA.next != null)
+                contact._nodeA.next.prev = contact._nodeA.prev;
+            if (contact._nodeA == bodyA.contactList)
+                bodyA.contactList = contact._nodeA.next;
+            if (contact._nodeB.prev != null)
+                contact._nodeB.prev.next = contact._nodeB.next;
+            if (contact._nodeB.next != null)
+                contact._nodeB.next.prev = contact._nodeB.prev;
+            if (contact._nodeB == bodyB.contactList)
+                bodyB.contactList = contact._nodeB.next;
+            if (this.activeContacts.has(contact)) {
+                this.activeContacts.delete(contact);
+            }
+            contact.destroy();
+        };
         return ContactManager;
     }());
     physics.ContactManager = ContactManager;
@@ -2705,6 +2807,33 @@ var physics;
         return Island;
     }());
     physics.Island = Island;
+})(physics || (physics = {}));
+var physics;
+(function (physics) {
+    var TimeStep = /** @class */ (function () {
+        function TimeStep() {
+        }
+        return TimeStep;
+    }());
+    physics.TimeStep = TimeStep;
+    var Position = /** @class */ (function () {
+        function Position() {
+        }
+        return Position;
+    }());
+    physics.Position = Position;
+    var Velocity = /** @class */ (function () {
+        function Velocity() {
+        }
+        return Velocity;
+    }());
+    physics.Velocity = Velocity;
+    var SolverData = /** @class */ (function () {
+        function SolverData() {
+        }
+        return SolverData;
+    }());
+    physics.SolverData = SolverData;
 })(physics || (physics = {}));
 var physics;
 (function (physics) {
@@ -2779,6 +2908,28 @@ var physics;
             this._nodeB = new ContactEdge();
             // reset
         }
+        Contact.prototype.resetRestitution = function () {
+            this.restitution = physics.Settings.mixRestitution(this.fixtureA.restitution, this.fixtureB.restitution);
+        };
+        Contact.prototype.resetFriction = function () {
+            this.friction = physics.Settings.mixFriction(this.fixtureA.friction, this.fixtureB.friction);
+        };
+        Contact.prototype.getWorldManifold = function (normal, points) {
+            var bodyA = this.fixtureA.body;
+            var bodyB = this.fixtureA.body;
+            var shapeA = this.fixtureA.shape;
+            var shapeB = this.fixtureB.shape;
+            // TODO; worldManifold.initialize
+        };
+        Contact.prototype.destroy = function () {
+            // TODO: use_active_contact_set
+            this.fixtureA.body._world._contactPool.unshift(this);
+            if (this.manifold.pointCount > 0 && this.fixtureA.isSensor == false && this.fixtureB.isSensor == false) {
+                this.fixtureA.body.isAwake = true;
+                this.fixtureB.body.isAwake = true;
+            }
+            // TODO: reset
+        };
         Contact._edge = new physics.EdgeShape();
         Contact._contactRegisters = [
             [
@@ -2836,6 +2987,20 @@ var physics;
         return ContactVelocityConstraint;
     }());
     physics.ContactVelocityConstraint = ContactVelocityConstraint;
+    var ContactSolver = /** @class */ (function () {
+        function ContactSolver() {
+        }
+        ContactSolver.prototype.reset = function (step, count, contacts, positions, velocities) {
+            this._step = step;
+            this._count = count;
+            this._positions = positions;
+            this._velocities = velocities;
+            this._contacts = contacts;
+            // TODO: grow the array
+        };
+        return ContactSolver;
+    }());
+    physics.ContactSolver = ContactSolver;
 })(physics || (physics = {}));
 var physics;
 (function (physics) {

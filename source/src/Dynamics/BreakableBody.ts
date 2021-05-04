@@ -32,8 +32,7 @@ module physics {
                     let count = contact.manifold.pointCount;
 
                     for (let i = 0; i < count; ++ i) {
-                        // maxImpulse = Math.max(maxImpulse, impulse.)
-                        // TODO: impulse.points
+                        maxImpulse = Math.max(maxImpulse, impulse.points[i].normalImpulse);
                     }
 
                     if (maxImpulse > this.strength) {
@@ -41,6 +40,43 @@ module physics {
                     }
                 }
             }
+        }
+
+        public update() {
+            if (this._break) {
+                this.decompose();
+                this.isBroken = true;
+                this._break = false;
+            }
+
+            if (this.isBroken == false) {
+                if (this.parts.length > this._angularVelocitiesCache.length) {
+                    this._velocitiesCache = [];
+                    this._angularVelocitiesCache = [];
+                }
+
+                for (let i = 0; i < this.parts.length; i ++) {
+                    this._velocitiesCache[i] = this.parts[i].body.linearVelocity;
+                    this._angularVelocitiesCache[i] = this.parts[i].body.angularVelocity;
+                }
+            }
+        }
+
+        decompose() {
+            new es.List(this._world.contactManager.onPostSolve).remove(this.onPostSolve);
+
+            for (let i = 0; i < this.parts.length; i ++) {
+                let oldFixture = this.parts[i];
+
+                let shape = oldFixture.shape.clone();
+                let userData = oldFixture.userData;
+
+                this.mainBody.destroyFixture(oldFixture);
+
+                // TODO: BodyFactory
+            }
+
+            // TODO: removeBody
         }
     }
 }

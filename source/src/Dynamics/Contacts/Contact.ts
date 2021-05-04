@@ -91,6 +91,36 @@ module physics {
         constructor(fA: Fixture, indexA: number, fB: Fixture, indexB: number) {
             // reset
         }
+
+        public resetRestitution() {
+            this.restitution = Settings.mixRestitution(this.fixtureA.restitution, this.fixtureB.restitution);
+        }
+
+        public resetFriction() {
+            this.friction = Settings.mixFriction(this.fixtureA.friction, this.fixtureB.friction);
+        }
+
+        public getWorldManifold(normal: es.Vector2, points: FixedArray2<es.Vector2>){
+            let bodyA = this.fixtureA.body;
+            let bodyB = this.fixtureA.body;
+            let shapeA = this.fixtureA.shape;
+            let shapeB = this.fixtureB.shape;
+
+            // TODO; worldManifold.initialize
+        }
+
+        public destroy() {
+            // TODO: use_active_contact_set
+
+            this.fixtureA.body._world._contactPool.unshift(this);
+
+            if (this.manifold.pointCount > 0 && this.fixtureA.isSensor == false && this.fixtureB.isSensor == false) {
+                this.fixtureA.body.isAwake = true;
+                this.fixtureB.body.isAwake = true;
+            }
+            
+            // TODO: reset
+        }
     }
     
     /**

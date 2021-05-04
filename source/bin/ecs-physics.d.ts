@@ -203,6 +203,8 @@ declare module physics {
          * 在给定随机输入的情况下，这会使引擎更稳定，但是如果多边形的创建速度更为重要，则可能需要将其设置为false。
          */
         static useConvexHullPolygons: boolean;
+        static mixFriction(friction1: number, friction2: number): number;
+        static mixRestitution(restitution1: number, restitution2: number): number;
     }
 }
 declare module physics {
@@ -1153,6 +1155,9 @@ declare module physics {
         _xf: Transform;
         _island: boolean;
         constructor(world: World, position?: es.Vector2, rotation?: number, bodyType?: BodyType, userdata?: any);
+        resetDynamics(): void;
+        createFixture(shape: Shape, userData?: any): Fixture;
+        destroyFixture(fixture: Fixture): void;
     }
 }
 declare module physics {
@@ -1173,6 +1178,8 @@ declare module physics {
         _world: World;
         constructor(world: World, vertices: Vertices[], density: number, position?: es.Vector2, rotation?: number);
         onPostSolve(contact: Contact, impulse: ContactVelocityConstraint): void;
+        update(): void;
+        decompose(): void;
     }
 }
 declare module physics {
@@ -1199,6 +1206,8 @@ declare module physics {
         onPreSolve: preSolveDelegate[];
         constructor(broadPhase: DynamicTreeBroadPhase);
         addPair(proxyA: FixtureProxy, proxyB: FixtureProxy): void;
+        findNewContacts(): void;
+        destroy(contact: Contact): void;
     }
 }
 declare module physics {
@@ -1206,6 +1215,26 @@ declare module physics {
      * 这是一个内部类
      */
     class Island {
+    }
+}
+declare module physics {
+    class TimeStep {
+        dt: number;
+        dtRatio: number;
+        inv_dt: number;
+    }
+    class Position {
+        c: es.Vector2;
+        a: number;
+    }
+    class Velocity {
+        v: es.Vector2;
+        w: number;
+    }
+    class SolverData {
+        step: TimeStep;
+        positions: Position[];
+        velocities: Velocity[];
     }
 }
 declare module physics {
@@ -1353,6 +1382,10 @@ declare module physics {
         _toiCount: number;
         _toi: number;
         constructor(fA: Fixture, indexA: number, fB: Fixture, indexB: number);
+        resetRestitution(): void;
+        resetFriction(): void;
+        getWorldManifold(normal: es.Vector2, points: FixedArray2<es.Vector2>): void;
+        destroy(): void;
     }
     /**
      * 接触边缘用于在接触图中将实体和接触连接在一起，其中每个实体是一个节点，每个接触是一个边缘。
@@ -1395,6 +1428,14 @@ declare module physics {
         indexB: number;
         invMassA: number;
         invMassB: number;
+    }
+    class ContactSolver {
+        _step: TimeStep;
+        _positions: Position[];
+        _velocities: Velocity[];
+        _contacts: Contact[];
+        _count: number;
+        reset(step: TimeStep, count: number, contacts: Contact[], positions: Position[], velocities: Velocity[]): void;
     }
 }
 declare module physics {
