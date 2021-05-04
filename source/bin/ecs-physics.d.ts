@@ -553,21 +553,6 @@ declare module physics {
     }
 }
 declare module physics {
-    class CircleShape extends Shape {
-        readonly childCount: number;
-        position: es.Vector2;
-        _position: es.Vector2;
-        constructor(radius?: number, density?: number);
-        testPoint(transform: Transform, point: es.Vector2): boolean;
-        rayCast(output: RayCastOutput, input: RayCastInput, transform: Transform, childIndex: number): boolean;
-        computeAABB(aabb: AABB, transform: Transform, childIndex: number): void;
-        protected computeProperties(): void;
-        computeSubmergedArea(normal: es.Vector2, offset: number, xf: Transform, sc: es.Vector2): number;
-        compareTo(shape: CircleShape): boolean;
-        clone(): CircleShape;
-    }
-}
-declare module physics {
     /**
      * 线段（边缘）形状。 这些可以成环或成环连接到其他边缘形状。 连接信息用于确保正确的接触法线。
      */
@@ -598,6 +583,49 @@ declare module physics {
         protected computeProperties(): void;
         computeSubmergedArea(normal: es.Vector2, offset: number, xf: Transform, sc: es.Vector2): number;
         clone(): EdgeShape;
+    }
+}
+declare module physics {
+    /**
+     * 链形状是线段的自由形式序列。
+     * 链条有两个侧面碰撞，因此您可以使用内部和外部碰撞，因此可以使用任何缠绕顺序。
+     * 连接信息用于创建平滑冲突。
+     * 警告：如果存在自相交，则链条不会正确碰撞。
+     */
+    class ChainShape extends Shape {
+        vertices: Vertices;
+        readonly childCount: number;
+        prevVertex: es.Vector2;
+        nextVertex: es.Vector2;
+        _prevVertex: es.Vector2;
+        _nextVertex: es.Vector2;
+        _hasPrevVertex: boolean;
+        _hasNextVertex: boolean;
+        static _edgeShape: EdgeShape;
+        constructor(vertices?: Vertices, createLoop?: boolean);
+        getChildEdge(edge: EdgeShape, index: number): void;
+        setVertices(vertices: Vertices, createLoop?: boolean): void;
+        testPoint(transform: Transform, point: es.Vector2): boolean;
+        rayCast(output: RayCastOutput, input: RayCastInput, transform: Transform, childIndex: number): boolean;
+        computeAABB(aabb: AABB, transform: Transform, childIndex: number): void;
+        protected computeProperties(): void;
+        computeSubmergedArea(normal: es.Vector2, offset: number, xf: Transform, sc: es.Vector2): number;
+        clone(): ChainShape;
+    }
+}
+declare module physics {
+    class CircleShape extends Shape {
+        readonly childCount: number;
+        position: es.Vector2;
+        _position: es.Vector2;
+        constructor(radius?: number, density?: number);
+        testPoint(transform: Transform, point: es.Vector2): boolean;
+        rayCast(output: RayCastOutput, input: RayCastInput, transform: Transform, childIndex: number): boolean;
+        computeAABB(aabb: AABB, transform: Transform, childIndex: number): void;
+        protected computeProperties(): void;
+        computeSubmergedArea(normal: es.Vector2, offset: number, xf: Transform, sc: es.Vector2): number;
+        compareTo(shape: CircleShape): boolean;
+        clone(): CircleShape;
     }
 }
 declare module physics {
@@ -1349,7 +1377,24 @@ declare module physics {
     }
 }
 declare module physics {
+    class VelocityConstraintPoint {
+        RA: es.Vector2;
+        RB: es.Vector2;
+        normalImpulse: number;
+        tangentImpulse: number;
+        normalMass: number;
+        tangentMass: number;
+        velocityBias: number;
+    }
     class ContactVelocityConstraint {
+        points: VelocityConstraintPoint[];
+        normal: es.Vector2;
+        normalMass: Mat22;
+        k: Mat22;
+        indexA: number;
+        indexB: number;
+        invMassA: number;
+        invMassB: number;
     }
 }
 declare module physics {

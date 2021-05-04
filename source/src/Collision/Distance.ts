@@ -29,7 +29,13 @@ module physics {
                     break;
 
                 case ShapeType.chain: {
-                    // TODO: chain
+                    let chain = <ChainShape> shape;
+                    console.assert(0 <= index && index < chain.vertices.length);
+                    this.vertices.length = 0;
+                    this.vertices.push(chain.vertices[index]);
+                    this.vertices.push(index + 1 < chain.vertices.length ? chain.vertices[index + 1] : chain.vertices[0]);
+
+                    this.radius = chain.radius;
                 }   
 
                     break;

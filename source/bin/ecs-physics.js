@@ -550,7 +550,12 @@ var physics;
                     break;
                 case physics.ShapeType.chain:
                     {
-                        // TODO: chain
+                        var chain = shape;
+                        console.assert(0 <= index && index < chain.vertices.length);
+                        this.vertices.length = 0;
+                        this.vertices.push(chain.vertices[index]);
+                        this.vertices.push(index + 1 < chain.vertices.length ? chain.vertices[index + 1] : chain.vertices[0]);
+                        this.radius = chain.radius;
                     }
                     break;
                 case physics.ShapeType.edge:
@@ -798,114 +803,6 @@ var physics;
     }());
     physics.Shape = Shape;
 })(physics || (physics = {}));
-///<reference path="./Shape.ts" />
-var physics;
-///<reference path="./Shape.ts" />
-(function (physics) {
-    var CircleShape = /** @class */ (function (_super) {
-        __extends(CircleShape, _super);
-        function CircleShape(radius, density) {
-            if (radius === void 0) { radius = 0; }
-            if (density === void 0) { density = 0; }
-            var _this = _super.call(this, density) || this;
-            console.assert(radius >= 0);
-            console.assert(density >= 0);
-            _this.shapeType = physics.ShapeType.circle;
-            _this._position = es.Vector2.zero;
-            _this.radius = radius;
-            return _this;
-        }
-        Object.defineProperty(CircleShape.prototype, "childCount", {
-            get: function () {
-                return 1;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(CircleShape.prototype, "position", {
-            get: function () {
-                return this._position;
-            },
-            set: function (value) {
-                this._position = value;
-                this.computeProperties();
-            },
-            enumerable: true,
-            configurable: true
-        });
-        CircleShape.prototype.testPoint = function (transform, point) {
-            var center = es.Vector2.add(transform.p, physics.MathUtils.mul_rv(transform.q, this.position));
-            var d = es.Vector2.subtract(point, center);
-            return es.Vector2.dot(d, d) <= this._2radius;
-        };
-        CircleShape.prototype.rayCast = function (output, input, transform, childIndex) {
-            var pos = es.Vector2.add(transform.p, physics.MathUtils.mul_rv(transform.q, this.position));
-            var s = es.Vector2.subtract(input.point1, pos);
-            var b = es.Vector2.dot(s, s) - this._2radius;
-            var r = es.Vector2.subtract(input.point2, input.point1);
-            var c = es.Vector2.dot(s, r);
-            var rr = es.Vector2.dot(r, r);
-            var sigma = c * c - rr * b;
-            if (sigma < 0 || rr < physics.Settings.epsilon)
-                return false;
-            var a = -(c + (Math.sqrt(sigma)));
-            if (0 <= a && a <= input.maxFraction * rr) {
-                a /= rr;
-                output.fraction = a;
-                output.normal = es.Vector2.add(s, es.Vector2.multiplyScaler(r, a));
-                es.Vector2Ext.normalize(output.normal);
-                return true;
-            }
-            return false;
-        };
-        CircleShape.prototype.computeAABB = function (aabb, transform, childIndex) {
-            var p = es.Vector2.add(transform.p, physics.MathUtils.mul_rv(transform.q, this.position));
-            aabb.lowerBound = new es.Vector2(p.x - this.radius, p.y - this.radius);
-            aabb.upperBound = new es.Vector2(p.x + this.radius, p.y + this.radius);
-        };
-        CircleShape.prototype.computeProperties = function () {
-            var area = physics.Settings.pi * this._2radius;
-            this.massData.area = area;
-            this.massData.mass = this.density * area;
-            this.massData.centroid = this.position.clone();
-            this.massData.inertia = this.massData.mass * (0.5 * this._2radius + es.Vector2.dot(this.position, this.position));
-        };
-        CircleShape.prototype.computeSubmergedArea = function (normal, offset, xf, sc) {
-            sc.x = 0;
-            sc.y = 0;
-            var p = physics.MathUtils.mul_tv(xf, this.position);
-            var l = -(es.Vector2.dot(normal, p) - offset);
-            if (l < -this.radius + physics.Settings.epsilon) {
-                return 0;
-            }
-            if (l > this.radius) {
-                sc = p;
-                return physics.Settings.pi * this._2radius;
-            }
-            var l2 = l * l;
-            var area = this._2radius * (Math.asin(l / this.radius) + physics.Settings.pi / 2) + l * Math.sqrt(this._2radius - l2);
-            var com = -2 / 3 * Math.pow(this._2radius - l2, 1.5) / area;
-            sc.x = p.x + normal.x * com;
-            sc.y = p.y + normal.y * com;
-            return area;
-        };
-        CircleShape.prototype.compareTo = function (shape) {
-            return (this.radius == shape.radius && this.position.equals(shape.position));
-        };
-        CircleShape.prototype.clone = function () {
-            var clone = new CircleShape();
-            clone.shapeType = this.shapeType;
-            clone._radius = this.radius;
-            clone._2radius = this._2radius;
-            clone._density = this._density;
-            clone._position = this._position;
-            clone.massData = this.massData;
-            return clone;
-        };
-        return CircleShape;
-    }(physics.Shape));
-    physics.CircleShape = CircleShape;
-})(physics || (physics = {}));
 ///<reference path="Shape.ts" />
 var physics;
 ///<reference path="Shape.ts" />
@@ -1033,6 +930,254 @@ var physics;
         return EdgeShape;
     }(physics.Shape));
     physics.EdgeShape = EdgeShape;
+})(physics || (physics = {}));
+///<reference path="./EdgeShape.ts" />
+var physics;
+///<reference path="./EdgeShape.ts" />
+(function (physics) {
+    /**
+     * 链形状是线段的自由形式序列。
+     * 链条有两个侧面碰撞，因此您可以使用内部和外部碰撞，因此可以使用任何缠绕顺序。
+     * 连接信息用于创建平滑冲突。
+     * 警告：如果存在自相交，则链条不会正确碰撞。
+     */
+    var ChainShape = /** @class */ (function (_super) {
+        __extends(ChainShape, _super);
+        function ChainShape(vertices, createLoop) {
+            if (createLoop === void 0) { createLoop = false; }
+            var _this = _super.call(this, 0) || this;
+            _this.shapeType = physics.ShapeType.chain;
+            _this._radius = physics.Settings.polygonRadius;
+            if (vertices) {
+                _this.setVertices(vertices, createLoop);
+            }
+            return _this;
+        }
+        Object.defineProperty(ChainShape.prototype, "childCount", {
+            get: function () {
+                return this.vertices.length - 1;
+            },
+            enumerable: true,
+            configurable: true
+        });
+        Object.defineProperty(ChainShape.prototype, "prevVertex", {
+            get: function () {
+                return this._prevVertex;
+            },
+            set: function (value) {
+                this._prevVertex = value;
+                this._hasPrevVertex = true;
+            },
+            enumerable: true,
+            configurable: true
+        });
+        Object.defineProperty(ChainShape.prototype, "nextVertex", {
+            get: function () {
+                return this._nextVertex;
+            },
+            set: function (value) {
+                this._nextVertex = value;
+                this._hasNextVertex = true;
+            },
+            enumerable: true,
+            configurable: true
+        });
+        ChainShape.prototype.getChildEdge = function (edge, index) {
+            console.assert(0 <= index && index < this.vertices.length - 1);
+            console.assert(edge != null);
+            edge.shapeType = physics.ShapeType.edge;
+            edge._radius = this._radius;
+            edge.vertex1 = this.vertices[index + 0];
+            edge.vertex2 = this.vertices[index + 1];
+            if (index > 0) {
+                edge.vertex0 = this.vertices[index - 1];
+                edge.hasVertex0 = true;
+            }
+            else {
+                edge.vertex0 = this._prevVertex;
+                edge.hasVertex0 = this._hasPrevVertex;
+            }
+            if (index < this.vertices.length - 2) {
+                edge.vertex3 = this.vertices[index + 2];
+                edge.hasVertex3 = true;
+            }
+            else {
+                edge.vertex3 = this._nextVertex;
+                edge.hasVertex3 = this._hasNextVertex;
+            }
+        };
+        ChainShape.prototype.setVertices = function (vertices, createLoop) {
+            if (createLoop === void 0) { createLoop = false; }
+            console.assert(vertices != null && vertices.length >= 3);
+            console.assert(vertices[0] != vertices[vertices.length - 1]);
+            for (var i = 1; i < vertices.length; ++i) {
+                var v1 = vertices[i - 1];
+                var v2 = vertices[i];
+                console.assert(es.Vector2.distanceSquared(v1, v2) > physics.Settings.linearSlop * physics.Settings.linearSlop);
+            }
+            this.vertices = vertices;
+            if (createLoop) {
+                this.vertices.push(vertices[0]);
+                this.prevVertex = this.vertices[this.vertices.length - 2];
+                this.nextVertex = this.vertices[1];
+            }
+        };
+        ChainShape.prototype.testPoint = function (transform, point) {
+            return false;
+        };
+        ChainShape.prototype.rayCast = function (output, input, transform, childIndex) {
+            console.assert(childIndex < this.vertices.length);
+            var i1 = childIndex;
+            var i2 = childIndex + 1;
+            if (i2 == this.vertices.length)
+                i2 = 0;
+            ChainShape._edgeShape.vertex1 = this.vertices[i1];
+            ChainShape._edgeShape.vertex2 = this.vertices[i2];
+            return ChainShape._edgeShape.rayCast(output, input, transform, 0);
+        };
+        ChainShape.prototype.computeAABB = function (aabb, transform, childIndex) {
+            console.assert(childIndex < this.vertices.length);
+            var i1 = childIndex;
+            var i2 = childIndex + 1;
+            if (i2 == this.vertices.length)
+                i2 = 0;
+            var v1 = physics.MathUtils.mul_tv(transform, this.vertices[i1]);
+            var v2 = physics.MathUtils.mul_tv(transform, this.vertices[i2]);
+            aabb.lowerBound = es.Vector2.min(v1, v2);
+            aabb.upperBound = es.Vector2.max(v1, v2);
+        };
+        ChainShape.prototype.computeProperties = function () {
+        };
+        ChainShape.prototype.computeSubmergedArea = function (normal, offset, xf, sc) {
+            sc.x = 0;
+            sc.y = 0;
+            return 0;
+        };
+        ChainShape.prototype.clone = function () {
+            var clone = new ChainShape();
+            clone.shapeType = this.shapeType;
+            clone._density = this._density;
+            clone._radius = this._radius;
+            clone.prevVertex = this._prevVertex;
+            clone.nextVertex = this._nextVertex;
+            clone._hasNextVertex = this._hasNextVertex;
+            clone._hasPrevVertex = this._hasPrevVertex;
+            clone.vertices = new physics.Vertices(this.vertices);
+            clone.massData = this.massData;
+            return clone;
+        };
+        ChainShape._edgeShape = new physics.EdgeShape();
+        return ChainShape;
+    }(physics.Shape));
+    physics.ChainShape = ChainShape;
+})(physics || (physics = {}));
+///<reference path="./Shape.ts" />
+var physics;
+///<reference path="./Shape.ts" />
+(function (physics) {
+    var CircleShape = /** @class */ (function (_super) {
+        __extends(CircleShape, _super);
+        function CircleShape(radius, density) {
+            if (radius === void 0) { radius = 0; }
+            if (density === void 0) { density = 0; }
+            var _this = _super.call(this, density) || this;
+            console.assert(radius >= 0);
+            console.assert(density >= 0);
+            _this.shapeType = physics.ShapeType.circle;
+            _this._position = es.Vector2.zero;
+            _this.radius = radius;
+            return _this;
+        }
+        Object.defineProperty(CircleShape.prototype, "childCount", {
+            get: function () {
+                return 1;
+            },
+            enumerable: true,
+            configurable: true
+        });
+        Object.defineProperty(CircleShape.prototype, "position", {
+            get: function () {
+                return this._position;
+            },
+            set: function (value) {
+                this._position = value;
+                this.computeProperties();
+            },
+            enumerable: true,
+            configurable: true
+        });
+        CircleShape.prototype.testPoint = function (transform, point) {
+            var center = es.Vector2.add(transform.p, physics.MathUtils.mul_rv(transform.q, this.position));
+            var d = es.Vector2.subtract(point, center);
+            return es.Vector2.dot(d, d) <= this._2radius;
+        };
+        CircleShape.prototype.rayCast = function (output, input, transform, childIndex) {
+            var pos = es.Vector2.add(transform.p, physics.MathUtils.mul_rv(transform.q, this.position));
+            var s = es.Vector2.subtract(input.point1, pos);
+            var b = es.Vector2.dot(s, s) - this._2radius;
+            var r = es.Vector2.subtract(input.point2, input.point1);
+            var c = es.Vector2.dot(s, r);
+            var rr = es.Vector2.dot(r, r);
+            var sigma = c * c - rr * b;
+            if (sigma < 0 || rr < physics.Settings.epsilon)
+                return false;
+            var a = -(c + (Math.sqrt(sigma)));
+            if (0 <= a && a <= input.maxFraction * rr) {
+                a /= rr;
+                output.fraction = a;
+                output.normal = es.Vector2.add(s, es.Vector2.multiplyScaler(r, a));
+                es.Vector2Ext.normalize(output.normal);
+                return true;
+            }
+            return false;
+        };
+        CircleShape.prototype.computeAABB = function (aabb, transform, childIndex) {
+            var p = es.Vector2.add(transform.p, physics.MathUtils.mul_rv(transform.q, this.position));
+            aabb.lowerBound = new es.Vector2(p.x - this.radius, p.y - this.radius);
+            aabb.upperBound = new es.Vector2(p.x + this.radius, p.y + this.radius);
+        };
+        CircleShape.prototype.computeProperties = function () {
+            var area = physics.Settings.pi * this._2radius;
+            this.massData.area = area;
+            this.massData.mass = this.density * area;
+            this.massData.centroid = this.position.clone();
+            this.massData.inertia = this.massData.mass * (0.5 * this._2radius + es.Vector2.dot(this.position, this.position));
+        };
+        CircleShape.prototype.computeSubmergedArea = function (normal, offset, xf, sc) {
+            sc.x = 0;
+            sc.y = 0;
+            var p = physics.MathUtils.mul_tv(xf, this.position);
+            var l = -(es.Vector2.dot(normal, p) - offset);
+            if (l < -this.radius + physics.Settings.epsilon) {
+                return 0;
+            }
+            if (l > this.radius) {
+                sc = p;
+                return physics.Settings.pi * this._2radius;
+            }
+            var l2 = l * l;
+            var area = this._2radius * (Math.asin(l / this.radius) + physics.Settings.pi / 2) + l * Math.sqrt(this._2radius - l2);
+            var com = -2 / 3 * Math.pow(this._2radius - l2, 1.5) / area;
+            sc.x = p.x + normal.x * com;
+            sc.y = p.y + normal.y * com;
+            return area;
+        };
+        CircleShape.prototype.compareTo = function (shape) {
+            return (this.radius == shape.radius && this.position.equals(shape.position));
+        };
+        CircleShape.prototype.clone = function () {
+            var clone = new CircleShape();
+            clone.shapeType = this.shapeType;
+            clone._radius = this.radius;
+            clone._2radius = this._2radius;
+            clone._density = this._density;
+            clone._position = this._position;
+            clone.massData = this.massData;
+            return clone;
+        };
+        return CircleShape;
+    }(physics.Shape));
+    physics.CircleShape = CircleShape;
 })(physics || (physics = {}));
 var physics;
 (function (physics) {
@@ -2678,8 +2823,15 @@ var physics;
 })(physics || (physics = {}));
 var physics;
 (function (physics) {
+    var VelocityConstraintPoint = /** @class */ (function () {
+        function VelocityConstraintPoint() {
+        }
+        return VelocityConstraintPoint;
+    }());
+    physics.VelocityConstraintPoint = VelocityConstraintPoint;
     var ContactVelocityConstraint = /** @class */ (function () {
         function ContactVelocityConstraint() {
+            this.points = [];
         }
         return ContactVelocityConstraint;
     }());
