@@ -184,10 +184,13 @@ module physics {
 
             if (value) {
                 let broadPhase = this._world.contactManager.broadPhase;
-                // for (let i = 0; i < this.fixtureList.length; i ++)
-                //     this.fixtureList[i].create
+                for (let i = 0; i < this.fixtureList.length; i ++)
+                    this.fixtureList[i].createProxies(broadPhase, this._xf);
+            } else {
+                const broadPhase = this._world.contactManager.broadPhase;
 
-                // TODO: createProxies
+                for (let i = 0; i < this.fixtureList.length; i ++)
+                    this.fixtureList[i].dest
             }
         }
 

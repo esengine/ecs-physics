@@ -24,6 +24,10 @@ module physics {
          * Fixture构造函数将其用作Fixture.ignoreCCDWith成员的默认值
          */
         public static defaultFixtureIgnoreCCDWith = Category.none;
+        /**
+         * 这用于在动态树中增加AABBs。这允许代理在不触发树调整的情况下少量移动。这是以米为单位的。
+         */
+        public static readonly aabbExtension = 0.1;
 
         /**
          * 用作碰撞和约束公差的小长度。 

@@ -289,5 +289,38 @@ module physics {
                 // broadPhase
             // TODO: touchProxy
         }
+
+        registerFixture() {
+            this.proxies = [];
+            this.proxyCount = 0;
+
+            if (this.body.enabled) {
+                let broadPhase = this.body._world.contactManager.broadPhase;
+                this.cre
+            }
+        }
+
+        public createProxies(broadPhase: DynamicTreeBroadPhase, xf: Transform) {
+            console.assert(this.proxyCount == 0);
+
+            this.proxyCount = this.shape.childCount;
+
+            for (let i = 0; i < this.proxyCount; ++ i) {
+                let proxy = new FixtureProxy();
+                this.shape.computeAABB(proxy.aabb, xf, i);
+                proxy.fixture = this;
+                proxy.childIndex = i;
+
+                proxy.proxyId = broadPhase.addProxy(proxy);
+
+                this.proxies[i] = proxy;
+            }
+        }
+
+        public destroyProxies(broadPhase: DynamicTreeBroadPhase) {
+            for (let i = 0; i < this.proxyCount; ++ i) {
+                broadPhase.remo
+            }
+        }
     }
 }

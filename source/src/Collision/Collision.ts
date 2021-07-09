@@ -174,7 +174,7 @@ module physics {
                 new es.Vector2(this.upperBound.x, this.center.y));
         }
 
-        constructor(min: es.Vector2, max: es.Vector2) {
+        constructor(min: es.Vector2 = new es.Vector2(), max: es.Vector2 = new es.Vector2()) {
             this.lowerBound = min;
             this.upperBound = max;
         }
@@ -197,6 +197,11 @@ module physics {
         public combine(aabb: AABB) {
             this.lowerBound = es.Vector2.min(this.lowerBound, aabb.lowerBound);
             this.upperBound = es.Vector2.max(this.upperBound, aabb.upperBound);
+        }
+
+        public combine2(aabb1: AABB, aabb2: AABB) {
+            this.lowerBound = es.Vector2.min(aabb1.lowerBound, aabb2.lowerBound);
+            this.upperBound = es.Vector2.max(aabb1.upperBound, aabb2.upperBound);
         }
 
         /**
