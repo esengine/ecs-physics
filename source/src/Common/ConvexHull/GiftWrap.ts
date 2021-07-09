@@ -36,8 +36,8 @@ module physics {
                         continue;
                     }
 
-                    let r = es.Vector2.subtract(vertices[ie], vertices[hull[m]]);
-                    let v = es.Vector2.subtract(vertices[j], vertices[hull[m]]);
+                    let r = vertices[ie].sub(vertices[hull[m]]);
+                    let v = vertices[j].sub(vertices[hull[m]]);
                     let c = MathUtils.cross(r, v);
                     if (c < 0) {
                         ie = j;

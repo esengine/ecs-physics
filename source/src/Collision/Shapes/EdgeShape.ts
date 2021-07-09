@@ -72,13 +72,13 @@ module physics {
 
         public rayCast(output: RayCastOutput, input: RayCastInput, transform: Transform,
             childIndex: number) {
-            let p1 = MathUtils.mul_rv(transform.q, es.Vector2.subtract(input.point1, transform.p));
-            let p2 = MathUtils.mul_rv(transform.q, es.Vector2.subtract(input.point2, transform.p));
-            let d = es.Vector2.subtract(p2, p1);
+            let p1 = MathUtils.mul(transform.q, input.point1.sub(transform.p));
+            let p2 = MathUtils.mul(transform.q, input.point2.sub(transform.p));
+            let d = p2.sub(p1);
 
             let v1 = this._vertex1.clone();
             let v2 = this._vertex2.clone();
-            let e = es.Vector2.subtract(v2, v1);
+            let e = v2.sub(v1);
             let normal = new es.Vector2(e.y, -e.x);
             es.Vector2Ext.normalize(normal);
 

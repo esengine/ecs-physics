@@ -36,7 +36,7 @@ module physics {
             xfb.q.set(angle);
 
             // 转向原点 
-            xfb.p.subtract(MathUtils.mul(xfb.q, this.localCenter));
+            xfb.p.sub(MathUtils.mul(xfb.q, this.localCenter));
         }
 
         /**
@@ -46,7 +46,7 @@ module physics {
         public advance(alpha: number) {
             console.assert(this.alpha0 < 1);
             let beta = (alpha - this.alpha0) / (1 - this.alpha0);
-            this.c0.add(es.Vector2.subtract(this.c, this.c0).multiplyScaler(beta));
+            this.c0.add(this.c.sub(this.c0).multiplyScaler(beta));
             this.a0 += beta * (this.a - this.a0);
             this.alpha0 = alpha;
         }
@@ -157,30 +157,37 @@ module physics {
     }
 
     export class MathUtils {
-        public static mul(q: Rot, v: es.Vector2) {
-            return new es.Vector2(q.c * v.x - q.s * v.y, q.s * v.x + q.c * v.y);
-        }
+        public static mul(a: Transform, b: es.Vector2): es.Vector2;
+        public static mul(a: Rot, b: es.Vector2): es.Vector2;
+        public static mul(a: Mat22, b: es.Vector2): es.Vector2;
+        public static mul(a: Rot, b: Rot): Rot;
+        public static mul(a: Rot, b: es.Vector2): es.Vector2;
+        public static mul(a: any, b: any): es.Vector2 | Rot {
+            if (a instanceof Transform && b instanceof es.Vector2) {
+                const x = (a.q.c * b.x - a.q.s * b.y) + a.p.x;
+                const y = (a.q.s * b.x + a.q.c * b.y) + a.p.y;
+    
+                return new es.Vector2(x, y);
+            }
 
-        public static mul_tv(t: Transform, v: es.Vector2) {
-            let x = (t.q.c * v.x - t.q.s * v.y) + t.p.x;
-            let y = (t.q.s * v.x + t.q.c * v.y) + t.p.y;
+            if (a instanceof Rot && b instanceof es.Vector2) {
+                return new es.Vector2(a.c * b.x - a.s * b.y, a.s * b.x + a.c * b.y);
+            }
 
-            return new es.Vector2(x, y);
-        }
+            if (a instanceof Mat22 && b instanceof es.Vector2) {
+                return new es.Vector2(b.x * a.ex.x + b.y * a.ex.y, b.x * a.ey.x + b.y * a.ey.y);
+            }
 
-        public static mul_mv(a: Mat22, v: es.Vector2) {
-            return new es.Vector2(v.x * a.ex.x + v.y * a.ex.y, v.x * a.ey.x + v.y * a.ey.y);
-        }
+            if (a instanceof Rot && b instanceof Rot) {
+                const qr: Rot = new Rot(0);
+                qr.s = a.c * b.s - a.s * b.c;
+                qr.c = a.c * b.c + a.s * b.s;
+                return qr;
+            }
 
-        public static mul_rr(q: Rot, r: Rot) {
-            let qr: Rot = new Rot(0);
-            qr.s = q.c * r.s - q.s * r.c;
-            qr.c = q.c * r.c + q.s * r.s;
-            return qr;
-        }
-
-        public static mul_rv(q: Rot, v: es.Vector2) {
-            return new es.Vector2(q.c * v.x + q.s * v.y, -q.s * v.x + q.c * v.y);
+            if (a instanceof Rot && b instanceof es.Vector2) {
+                return new es.Vector2(a.c * b.x + a.s * b.y, -a.s * b.x + a.c * b.y);
+            }
         }
 
         public static cross(a: es.Vector2, b: es.Vector2) {

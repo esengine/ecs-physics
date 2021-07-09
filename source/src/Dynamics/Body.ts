@@ -83,7 +83,7 @@ module physics {
             if (this._bodyType == BodyType.static)
                 return;
 
-            if (es.Vector2.dot(value, value) > 0)
+            if (value.dot(value) > 0)
                 this.isAwake = true;
 
             this._linearVelocity = value;
@@ -190,8 +190,19 @@ module physics {
                 const broadPhase = this._world.contactManager.broadPhase;
 
                 for (let i = 0; i < this.fixtureList.length; i ++)
-                    this.fixtureList[i].dest
+                    this.fixtureList[i].destroyProxies(broadPhase);
+
+                let ce = this.contactList;
+                while (ce != null) {
+                    const ce0 = ce;
+                    ce = ce.next;
+                    this._world.contactManager.destroy(ce0.contact);
+                }
+
+                this.contactList = null;
             }
+
+            this._enabled = value;
         }
 
         /**
@@ -204,8 +215,7 @@ module physics {
             this._fixedRotation = value;
 
             this._angularVelocity = 0;
-            // this.res
-            // TODO: resetMassData
+            this.resetMassData();
         }
 
         public get fixedRotation() {
@@ -237,11 +247,11 @@ module physics {
          * 以显示单位获取/设置世界原点位置
          */
         public get displayPosition() {
-            return es.Vector2.multiplyScaler(this._xf.p, FSConvert.simToDisplay);
+            return this._xf.p.scale(FSConvert.simToDisplay);
         }
 
         public set displayPosition(value: es.Vector2) {
-            this.position = es.Vector2.multiplyScaler(value, FSConvert.displayToSim);
+            this.position = value.scale(FSConvert.displayToSim);
         }
 
         public get rotation() {
@@ -308,9 +318,9 @@ module physics {
 
             let oldCenter = this._sweep.c.clone();
             this._sweep.localCenter = value;
-            this._sweep.c0 = this._sweep.c = MathUtils.mul_tv(this._xf, this._sweep.localCenter);
+            this._sweep.c0 = this._sweep.c = MathUtils.mul(this._xf, this._sweep.localCenter);
 
-            let a = es.Vector2.subtract(this._sweep.c, oldCenter);
+            let a = this._sweep.c.sub(oldCenter);
             this._linearVelocity.add(new es.Vector2(-this._angularVelocity * a.y, this._angularVelocity * a.x));
         }
 
@@ -339,7 +349,7 @@ module physics {
          * 获取或设置物体绕局部原点的旋转惯量。 通常以kg-m ^ 2为单位
          */
         public get inertia() {
-            return this._inertia + this.mass * es.Vector2.dot(this._sweep.localCenter, this._sweep.localCenter);
+            return this._inertia + this.mass * this._sweep.localCenter.dot(this._sweep.localCenter);
         }
         
         public set inertia(value: number) {
@@ -349,7 +359,7 @@ module physics {
                 return;
 
             if (value> 0 && !this._fixedRotation) {
-                this._inertia = value - this.mass * es.Vector2.dot(this.localCenter, this.localCenter);
+                this._inertia = value - this.mass * this.localCenter.dot(this.localCenter);
                 console.assert(this._inertia > 0);
                 this._invI = 1 / this._inertia;
             }
@@ -513,8 +523,7 @@ module physics {
                     this._sweep.a = rotation;
                 }
 
-                // world.add
-                // TODO: addbody
+                this.world.addBody(this);
         }
 
         public resetDynamics() {
@@ -548,14 +557,87 @@ module physics {
 
             if (this._enabled){
                 let broadPhase = this._world.contactManager.broadPhase;
-                // TODO: destoryProxies
+                fixture.destroyProxies(broadPhase);
             }
             
             new es.List(this.fixtureList).remove(fixture);
-            // TODO: fixture.destory
+            fixture.destroy();
             fixture.body = null;
 
-            // TODO: resetMassData
+            this.resetMassData();
+        }
+
+        public resetMassData() {
+            this._mass = 0;
+            this._invMass = 0;
+            this._inertia = 0;
+            this._invI = 0;
+            this._sweep.localCenter = es.Vector2.zero;
+
+            if (this.bodyType == BodyType.kinematic) {
+                this._sweep.c0 = this._xf.p;
+                this._sweep.c = this._xf.p;
+                this._sweep.a0 = this._sweep.a;
+                return;
+            }
+
+            console.assert(this.bodyType == BodyType.dynamic || this.bodyType == BodyType.static);
+
+            let localCenter = es.Vector2.zero;
+            for (let i = 0; i < this.fixtureList.length; i ++) {
+                const f = this.fixtureList[i];
+                if (f.shape._density == 0)
+                    continue;
+
+                const massData = f.shape.massData;
+                this._mass += massData.mass;
+                this.localCenter = this.localCenter.add(massData.centroid.scale(massData.mass));
+                this._inertia += massData.inertia;
+            }
+
+            if (this.bodyType == BodyType.static) {
+                this._sweep.c0 = this._sweep.c = this._xf.p;
+                return;
+            }
+
+            if (this._mass > 0) {
+                this._invMass = 1 / this._mass;
+                localCenter = localCenter.scale(this._invMass);
+            } else {
+                this._mass = 1;
+                this._invMass = 1;
+            }
+
+            if (this._invMass > 0 && !this._fixedRotation) {
+                this._inertia -= this._mass * localCenter.dot(localCenter);
+
+                console.assert(this._inertia > 0);
+                this._invI = 1/ this._inertia;
+            } else {
+                this._inertia = 0;
+                this._invI = 0;
+            }
+
+            const oldCenter = this._sweep.c;
+            this._sweep.localCenter = localCenter;
+            this._sweep.c0 = this._sweep.c = MathUtils.mul(this._xf, this._sweep.localCenter);
+
+            const a = this._sweep.c.sub(oldCenter);
+            this._linearVelocity = this._linearVelocity.add(new es.Vector2(-this._angularVelocity * a.y, this._angularVelocity * a.x));
+        }
+
+        public shouldCollide(other: Body) {
+            if (this._bodyType != BodyType.dynamic && other._bodyType != BodyType.dynamic) 
+                return false;
+
+            for (let jn = this.jointList; jn != null; jn = jn.next) {
+                if (jn.other == other) {
+                    if (jn.joint.collideConnected == false)
+                        return false;
+                }
+            }
+
+            return true;
         }
     }
 }

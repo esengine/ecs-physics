@@ -122,12 +122,65 @@ module physics {
             let proxyId = this.allocateNode();
 
             const r = new es.Vector2(Settings.aabbExtension, Settings.aabbExtension);
-            this._nodes[proxyId].aabb.lowerBound = aabb.lowerBound.subtract(r);
+            this._nodes[proxyId].aabb.lowerBound = aabb.lowerBound.sub(r);
             this._nodes[proxyId].aabb.upperBound = aabb.upperBound.add(r);
             this._nodes[proxyId].userData = userData;
             this._nodes[proxyId].height = 0;
 
-            this.in
+            this.insertLeaf(proxyId);
+
+            return proxyId;
+        }
+
+        public removeProxy(proxyId: number) {
+            console.assert(0 <= proxyId && proxyId < this._nodeCapacity);
+            console.assert(this._nodes[proxyId].isLeaf());
+
+            this.removeLeaf(proxyId);
+            this.freeNode(proxyId);
+        }
+
+        public moveProxy(proxyId: number, aabb: AABB, displacement: es.Vector2) {
+            console.assert(0 <= proxyId && proxyId < this._nodeCapacity);
+            console.assert(this._nodes[proxyId].isLeaf());
+
+            if (this._nodes[proxyId].aabb.contains(aabb)) {
+                return false;
+            }
+
+            this.removeLeaf(proxyId);
+
+            const b = aabb;
+            const r = new es.Vector2(Settings.aabbExtension, Settings.aabbExtension);
+            b.lowerBound = b.lowerBound.sub(r);
+            b.upperBound = b.upperBound.add(r);
+
+            const d = displacement.scale(Settings.aabbExtension);
+            if (d.x < 0)
+                b.lowerBound.x += d.x;
+            else 
+                b.upperBound.x += d.x;
+
+            if (d.y < 0)
+                b.lowerBound.y += d.y;
+            else
+                b.upperBound.y += d.y;
+
+            this._nodes[proxyId].aabb = b;
+
+            this.insertLeaf(proxyId);
+            return true;
+        }
+
+        public getUserData(proxyId: number) {
+            console.assert(0 <= proxyId && proxyId < this._nodeCapacity);
+            return this._nodes[proxyId].userData;
+        }
+
+        public getFatAABB(proxyId: number) {
+            console.assert(0 <= proxyId && proxyId < this._nodeCapacity);
+            const fatAABB = this._nodes[proxyId].aabb;
+            return fatAABB;
         }
 
         allocateNode(): number {
@@ -186,7 +239,7 @@ module physics {
                 const area = this._nodes[index].aabb.perimeter;
 
                 const combinedAABB = new AABB();
-                combinedAABB.combine(this._nodes[index].aabb, leafAABB);
+                combinedAABB.combine2(this._nodes[index].aabb, leafAABB);
                 const combinedArea = combinedAABB.perimeter;
 
                 const cost = 2 * combinedArea;

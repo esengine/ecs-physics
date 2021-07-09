@@ -81,18 +81,28 @@ module physics {
         public removeProxy(proxyId: number) {
             this.unBufferMove(proxyId);
             --this._proxyCount;
-            this._tree.
+            this._tree.removeProxy(proxyId);
+        }
+        
+        public touchProxy(proxyId: number) {
+            this.bufferMove(proxyId);
         }
 
         bufferMove(proxyId: number) {
             if (this._moveCount == this._moveCapacity) {
-                let oldBuffer = this._moveCapacity
+                const oldBuffer = this._moveBuffer;
+                this._moveCapacity *= 2;
+                this._moveBuffer = oldBuffer.slice(0, this._moveCount);
             }
+
+            this._moveBuffer[this._moveCount] = proxyId;
+            ++ this._moveCount;
         }
 
         unBufferMove(proxyId: number) {
             for (let i = 0; i < this._moveCount; ++i){
-                if (this._move)
+                if (this._moveBuffer[i] == proxyId)
+                    this._moveBuffer[i] = DynamicTree.nullNode;
             }
         }
 
@@ -100,7 +110,27 @@ module physics {
             if (proxyId == this._queryProxyId)
                 return true;
 
-            if (this._pair)
+            if (this._pairCount == this._pairCapacity) {
+                const oldBuffer = this._pairBuffer;
+                this._pairCapacity *= 2;
+                this._pairBuffer = oldBuffer.slice(0, this._pairCount);
+            }
+
+            this._pairBuffer[this._pairCount].proxyIdA = Math.min(proxyId, this._queryProxyId);
+            this._pairBuffer[this._pairCount].proxyIdB = Math.max(proxyId, this._queryProxyId);
+            ++ this._pairCount;
+
+            return true;
+        }
+
+        public getProxy(proxyId: number) {
+            return this._tree.getUserData(proxyId);
+        }
+
+        public testOverlap(proxyIdA: number, proxyIdB: number) {
+            const aabbA = this._tree.getFatAABB(proxyIdA);
+            const aabbB = this._tree.getFatAABB(proxyIdB);
+            return AABB.testOverlap(aabbA, aabbB);
         }
     }
 }

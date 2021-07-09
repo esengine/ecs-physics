@@ -109,6 +109,66 @@ module physics {
             // TODO; worldManifold.initialize
         }
 
+        reset(fA: Fixture, indexA: number, fB: Fixture, indexB: number) {
+            this.enabled = true;
+            this.isTouching = false;
+            this.islandFlag = false;
+            this.filterFlag = false;
+            this.toiFlag = false;
+
+            this.fixtureA = fA;
+            this.fixtureB = fB;
+
+            this.childIndexA = indexA;
+            this.childIndexB = indexB;
+
+            this.manifold.pointCount = 0;
+
+            this._nodeA.contact = null;
+            this._nodeA.prev = null;
+            this._nodeA.next = null;
+            this._nodeA.other = null;
+
+            this._nodeB.contact = null;
+            this._nodeB.prev = null;
+            this._nodeB.next = null;
+            this._nodeB.other = null;
+
+            this._toiCount = 0;
+
+            if (this.fixtureA != null && this.fixtureB != null){
+                this.friction = Settings.mixFriction(this.fixtureA.friction, this.fixtureB.friction);
+                this.restitution = Settings.mixRestitution(this.fixtureA.restitution, this.fixtureB.restitution);
+            }
+
+            this.tangentSpeed = 0;
+        }
+
+        public update(contactManager: ContactManager) {
+            const bodyA = this.fixtureA.body;
+            const bodyB = this.fixtureB.body;
+
+            if (this.fixtureA == null || this.fixtureB == null)
+                return;
+
+            const oldManifold = this.manifold;
+
+            this.enabled = true;
+            let touching: boolean = false;
+            const wasTouching = this.isTouching;
+            const sensor = this.fixtureA.isSensor || this.fixtureB.isSensor;
+
+            if (sensor) {
+                const shapeA = this.fixtureA.shape;
+                const shapeB = this.fixtureB.shape;
+                touching = Collision.testOverlap(shapeA, this.childIndexA, shapeB, this.childIndexB, bodyA._xf, bodyB._xf);
+
+                this.manifold.pointCount = 0;
+            } else {
+                // TODO: evluate
+            }
+        }
+
         public destroy() {
             // TODO: use_active_contact_set
 

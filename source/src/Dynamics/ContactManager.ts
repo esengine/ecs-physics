@@ -13,7 +13,7 @@ module physics {
         /** 创建contact时触发  */
         public onBeginContact: beginContactDelegate[];
         /** Contact管理器使用的过滤器 */
-        public onContactFilter: collisionFilterDelegate[];
+        public onContactFilter: collisionFilterDelegate;
         /** 删除contact时触发  */
         public onEndContact: endContactDelegate[];
         /** 当broadphase检测到两个fixture彼此靠近时触发 */
@@ -113,6 +113,105 @@ module physics {
             }
 
             contact.destroy();
+        }
+
+        public collide() {
+            let list: Contact[] = [];
+            if (Defined.USE_ACTIVE_CONTACT_SET) {
+                this.activeList.concat(Array.from(this.activeContacts));
+
+                list = this.activeList;
+            } else {
+                list = this.contactList;
+            }
+
+            for (let i = 0; i < list.length; i++) {
+                const c = list[i];
+                const fixtureA = c.fixtureA;
+                const fixtureB = c.fixtureB;
+                const indexA = c.childIndexA;
+                const indexB = c.childIndexB;
+                const bodyA = fixtureA.body;
+                const bodyB = fixtureB.body;
+
+                if (!bodyA.enabled || !bodyB.enabled) {
+                    continue;
+                }
+
+                if (c.filterFlag) {
+                    if (bodyB.shouldCollide(bodyA) == false) {
+                        const cNuke = c;
+                        this.destroy(cNuke);
+                        continue;
+                    }
+
+                    if (ContactManager.shouldCollide(fixtureA, fixtureB) == false) {
+                        const cNuke = c;
+                        this.destroy(cNuke);
+                        continue;
+                    }
+
+                    if (this.onContactFilter != null && this.onContactFilter(fixtureA, fixtureB) == false) {
+                        const cNuke = c;
+                        this.destroy(cNuke);
+                        continue;
+                    }
+
+                    c.filterFlag = false;
+                }
+
+                const activeA = bodyA.isAwake && bodyA.bodyType != BodyType.static;
+                const activeB = bodyB.isAwake && bodyB.bodyType != BodyType.static;
+
+                if (activeA == false && activeB == false) {
+                    if (Defined.USE_ACTIVE_CONTACT_SET) {
+                        this.activeContacts.delete(c);
+                    }
+                    continue;
+                }
+
+                const proxyIdA = fixtureA.proxies[indexA].proxyId;
+                const proxyIdB = fixtureB.proxies[indexB].proxyId;
+
+                const overlap = this.broadPhase.testOverlap(proxyIdA, proxyIdB);
+                if (overlap == false) {
+                    const cNuke = c;
+                    this.destroy(cNuke);
+                    continue;
+                }
+
+                c.update(this);
+            }
+        }
+
+        public static shouldCollide(fixtrueA: Fixture, fixtureB: Fixture): boolean {
+            if (Settings.useFPECollisionCategories) {
+                if ((fixtrueA.collisionGroup == fixtureB.collisionGroup) && fixtrueA.collisionGroup != 0 &&
+                    fixtureB.collisionGroup != 0) 
+                    return false;
+
+                if (Number(((fixtrueA.collisionCategories & fixtureB.collidesWith) == Category.none)) &
+                    Number(((fixtureB.collisionCategories & fixtrueA.collidesWith) == Category.none)))
+                    return false;
+
+                if (fixtrueA.isFixtureIgnored(fixtureB) || fixtureB.isFixtureIgnored(fixtrueA))
+                    return false;
+
+                return true;
+            }
+
+            if (fixtrueA.collisionGroup == fixtureB.collisionGroup && fixtrueA.collisionGroup != 0)
+                return fixtrueA.collisionGroup > 0;
+
+            const collide = (fixtrueA.collidesWith & fixtureB.collisionCategories) != 0 &&
+                (fixtrueA.collisionCategories & fixtureB.collidesWith) != 0;
+
+            if (collide) {
+                if (fixtrueA.isFixtureIgnored(fixtureB) || fixtureB.isFixtureIgnored(fixtrueA))
+                    return false;
+            }
+
+            return collide;
         }
     }
 }

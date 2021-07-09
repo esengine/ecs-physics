@@ -128,7 +128,7 @@ module physics {
                 area += triangleArea;
 
                 // 面积加权质心 
-                c.add(es.Vector2.multiplyScaler(es.Vector2.add(current, next), triangleArea * inv3));
+                c.add(current.add(next).scale(triangleArea * inv3));
             }
 
             c.multiplyScaler(1 / area);
@@ -190,7 +190,7 @@ module physics {
             console.assert(!this.attackedToBody, "Body使用的缩放顶点会导致行为不稳定 ");
 
             for (let i = 0; i < this.length; i ++)
-                this[i] = es.Vector2.multiply(this[i], value);
+                this[i] = this[i].multiply(value);
 
             if (this.holes != null && this.holes.length > 0) {
                 for (let hole of this.holes) {
@@ -238,13 +238,13 @@ module physics {
 
             for (let i = 0; i < this.length; ++ i) {
                 let next = i + 1 < this.length ? i + 1 : 0;
-                let edge = es.Vector2.subtract(this[next], this[i]);
+                let edge = this[next].sub(this[i]);
 
                 for (let j = 0; j < this.length; ++ j) {
                     if (j == i || j == next)
                         continue;
 
-                    let r = es.Vector2.subtract(this[j], this[i]);
+                    let r = this[j].sub(this[i]);
 
                     let s = edge.x * r.y - edge.y * r.x;
 

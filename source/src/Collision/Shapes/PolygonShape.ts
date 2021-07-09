@@ -55,7 +55,7 @@ module physics {
 
             for (let i = 0; i < this._vertices.length; ++i) {
                 let next = i + 1 < this._vertices.length ? i + 1 : 0;
-                let edge = es.Vector2.subtract(this._vertices[next], this._vertices[i]);
+                let edge = this._vertices[next].sub(this._vertices[i]);
                 console.assert(edge.lengthSquared() > Settings.epsilon * Settings.epsilon);
 
                 let temp = new es.Vector2(edge.y, -edge.x);
@@ -86,8 +86,8 @@ module physics {
             const k_inv3 = 1 / 3;
 
             for (let i = 0; i < this.vertices.length; ++ i) {
-                let e1 = es.Vector2.subtract(this.vertices[i], s);
-                let e2 = i + 1 < this.vertices.length ? es.Vector2.subtract(this.vertices[i + 1], s) : es.Vector2.subtract(this.vertices[0], s);
+                let e1 = this.vertices[i].sub(s);
+                let e2 = i + 1 < this.vertices.length ? this.vertices[i + 1].sub(s) : this.vertices[0].sub(s);
                 
                 let d = MathUtils.cross(e1, e2);
                 let triangleArea = 0.5 * d;
@@ -111,14 +111,14 @@ module physics {
             center.multiplyScaler(1 / area);
             this.massData.centroid = es.Vector2.add(center, s);
             this.massData.inertia = this._density * I;
-            this.massData.inertia += this.massData.mass * (es.Vector2.dot(this.massData.centroid, this.massData.centroid) - es.Vector2.dot(center, center));
+            this.massData.inertia += this.massData.mass * (this.massData.centroid.dot(this.massData.centroid) - center.dot(center));
         }
 
         public testPoint(transform: Transform, point: es.Vector2) {
-            let pLocal = MathUtils.mul_rv(transform.q, es.Vector2.subtract(point, transform.p));
+            let pLocal = MathUtils.mul(transform.q, point.sub(transform.p));
 
             for (let i = 0; i < this.vertices.length; ++ i) {
-                let dot = es.Vector2.dot(this.normals[i], es.Vector2.subtract(pLocal, this.vertices[i]));
+                let dot = this.normals[i].dot(pLocal.sub(this.vertices[i]));
                 if (dot > 0) {
                     return false;
                 }
@@ -128,17 +128,17 @@ module physics {
         }
 
         public rayCast(output: RayCastOutput, input: RayCastInput, transform: Transform, childIndex: number) {
-            let p1 = MathUtils.mul_rv(transform.q, es.Vector2.subtract(input.point1, transform.p));
-            let p2 = MathUtils.mul_rv(transform.q, es.Vector2.subtract(input.point2, transform.p));
-            let d = es.Vector2.subtract(p2, p1);
+            let p1 = MathUtils.mul(transform.q, input.point1.sub(transform.p));
+            let p2 = MathUtils.mul(transform.q, input.point2.sub(transform.p));
+            let d = p2.sub(p1);
 
             let lower = 0, upper = input.maxFraction;
 
             let index = -1;
 
             for (let i = 0; i < this.vertices.length; ++ i) {
-                let numerator = es.Vector2.dot(this.normals[i], es.Vector2.subtract(this.vertices[i], p1));
-                let denominator = es.Vector2.dot(this.normals[i], d);
+                let numerator = this.normals[i].dot(this.vertices[i].sub(p1));
+                let denominator = this.normals[i].dot(d);
 
                 if (denominator == 0) {
                     if (numerator < 0) {
@@ -163,7 +163,7 @@ module physics {
 
             if (index >= 0) {
                 output.fraction = lower;
-                output.normal = MathUtils.mul_rv(transform.q, this.normals[index]);
+                output.normal = MathUtils.mul(transform.q, this.normals[index]);
                 return true;
             }
 
@@ -171,17 +171,17 @@ module physics {
         }
 
         public computeAABB(aabb: AABB,transform: Transform, childIndex: number) {
-            let lower = MathUtils.mul_tv(transform, this.vertices[0]);
+            let lower = MathUtils.mul(transform, this.vertices[0]);
             let upper = lower.clone();
 
             for (let i = 1; i < this.vertices.length; ++ i) {
-                let v = MathUtils.mul_tv(transform, this.vertices[i]);
+                let v = MathUtils.mul(transform, this.vertices[i]);
                 lower = es.Vector2.min(lower, v);
                 upper = es.Vector2.max(upper, v);
             }
 
             let r = new es.Vector2(this.radius, this.radius);
-            aabb.lowerBound = es.Vector2.subtract(lower, r);
+            aabb.lowerBound = lower.sub(r);
             aabb.upperBound = es.Vector2.add(upper, r);
         }
 
@@ -189,8 +189,8 @@ module physics {
             sc.x = 0;
             sc.y = 0;
 
-            let normalL = MathUtils.mul_rv(xf.q, normal);
-            let offsetL = offset - es.Vector2.dot(normal, xf.p);
+            let normalL = MathUtils.mul(xf.q, normal);
+            let offsetL = offset - normal.dot(xf.p);
 
             let depths = [];
             let diveCount = 0;
@@ -200,7 +200,7 @@ module physics {
             let lastSubmerged = false;
             let i;
             for (i = 0; i < this.vertices.length; i ++) {
-                depths[i] = es.Vector2.dot(normalL, this.vertices[i]) - offsetL;
+                depths[i] = normalL.dot(this.vertices[i]) - offsetL;
                 let isSubmerged = depths[i] < -Settings.epsilon;
                 if (i > 0) {
                     if (isSubmerged) {
@@ -222,7 +222,7 @@ module physics {
             switch (diveCount) {
                 case 0:
                     if (lastSubmerged) {
-                        sc = MathUtils.mul_tv(xf, this.massData.centroid);
+                        sc = MathUtils.mul(xf, this.massData.centroid);
                         return this.massData.mass / this.density;
                     }
 
@@ -265,8 +265,8 @@ module physics {
                     p3 = this.vertices[i];
 
                 {
-                    let e1 = es.Vector2.subtract(p2, intoVec);
-                    let e2 = es.Vector2.subtract(p3, intoVec);
+                    let e1 = p2.sub(intoVec);
+                    let e2 = p3.sub(intoVec);
 
                     let d = MathUtils.cross(e1, e2);
                     let triangleArea = 0.5 * d;
@@ -279,7 +279,7 @@ module physics {
             }
 
             center.multiplyScaler(1 / area);
-            sc = MathUtils.mul_tv(xf, center);
+            sc = MathUtils.mul(xf, center);
 
             return area;
         }

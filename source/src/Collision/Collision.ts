@@ -129,12 +129,12 @@ module physics {
 
         /** 获取AABB的中心 */
         public get center() {
-            return es.Vector2.add(this.lowerBound, this.upperBound).multiplyScaler(0.5);
+            return this.lowerBound.add(this.upperBound).scale(0.5);
         }
 
         /** 获取AABB的范围（半宽） */
         public get extents() {
-            return es.Vector2.subtract(this.upperBound, this.lowerBound).multiplyScaler(0.5);
+            return this.upperBound.sub(this.lowerBound).scale(0.5);
         }
 
         /** 获取周长  */
@@ -184,7 +184,7 @@ module physics {
          * @returns 
          */
         public isValid() {
-            let d = es.Vector2.subtract(this.upperBound, this.lowerBound);
+            let d = this.upperBound.sub(this.lowerBound);
             let valid = d.x >= 0 && d.y >= 0;
             valid = valid && this.lowerBound.isValid() && this.upperBound.isValid();
             return valid;
@@ -224,8 +224,8 @@ module physics {
          * @param b 
          */
         public static testOverlap(a: AABB, b: AABB) {
-            let d1 = es.Vector2.subtract(b.lowerBound, a.upperBound);
-            let d2 = es.Vector2.subtract(a.lowerBound, b.upperBound);
+            const d1 = b.lowerBound.sub(a.upperBound);
+            const d2 = a.lowerBound.sub(b.upperBound);
 
             if (d1.x > 0 || d1.y > 0)
                 return false;
@@ -235,7 +235,24 @@ module physics {
 
             return true;
         }
+    }
 
+    export class Collision {
+        static _input: DistanceInput;
 
+        public static testOverlap(shapeA: Shape, indexA: number, shapeB: Shape, indexB: number, xfA: Transform, xfB: Transform) {
+            this._input = this._input ? this._input : new DistanceInput();
+            this._input.proxyA.set(shapeA, indexA);
+            this._input.proxyB.set(shapeB, indexB);
+            this._input.transformA = xfA;
+            this._input.transformB = xfB;
+            this._input.useRadii = true;
+
+            let cache: SimplexCache = new SimplexCache();
+            let output: DistanceOutput = new DistanceOutput();
+            cache = Distance.computeDistance(output, this._input);
+
+            return output.distance < 10 * Settings.epsilon;
+        }
     }
 }

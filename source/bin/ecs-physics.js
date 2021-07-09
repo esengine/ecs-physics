@@ -21,6 +21,16 @@ var __values = (this && this.__values) || function (o) {
 };
 var physics;
 (function (physics) {
+    var Defined = /** @class */ (function () {
+        function Defined() {
+        }
+        Defined.USE_ACTIVE_CONTACT_SET = false;
+        return Defined;
+    }());
+    physics.Defined = Defined;
+})(physics || (physics = {}));
+var physics;
+(function (physics) {
     var Category;
     (function (Category) {
         Category[Category["none"] = 0] = "none";
@@ -247,9 +257,65 @@ var physics;
                 return;
             }
             var broadPhase = world.contactManager.broadPhase;
-            // for (let i = 0; i < this.proxyCount; ++ i)
-            // broadPhase
-            // TODO: touchProxy
+            for (var i = 0; i < this.proxyCount; ++i)
+                broadPhase.touchProxy(this.proxies[i].proxyId);
+        };
+        Fixture.prototype.registerFixture = function () {
+            var _this = this;
+            this.proxies = [];
+            this.proxyCount = 0;
+            if (this.body.enabled) {
+                var broadPhase = this.body._world.contactManager.broadPhase;
+                this.createProxies(broadPhase, this.body._xf);
+            }
+            this.body.fixtureList.push(this);
+            if (this.shape._density > 0)
+                this.body.resetMassData();
+            this.body._world._worldHasNewFixture = true;
+            if (this.body._world.onFixtureAdded != null)
+                this.body._world.onFixtureAdded.forEach(function (fn) { return fn(_this); });
+        };
+        Fixture.prototype.rayCast = function (output, input, childIndex) {
+            return this.shape.rayCast(output, input, this.body._xf, childIndex);
+        };
+        Fixture.prototype.destroy = function () {
+            var _this = this;
+            if (this.shape.shapeType == physics.ShapeType.polygon)
+                this.shape.vertices.attackedToBody = false;
+            console.assert(this.proxyCount == 0);
+            this.proxies = null;
+            this.shape = null;
+            this.userData = null;
+            this.beforeCollision = null;
+            this.onCollision = null;
+            this.onSeperation = null;
+            this.afterCollision = null;
+            if (this.body._world.onFixtureRemoved != null) {
+                this.body._world.onFixtureRemoved.forEach(function (fn) { return fn(_this); });
+            }
+            this.body._world.onFixtureAdded = null;
+            this.body._world.onFixtureRemoved = null;
+            this.onSeperation = null;
+            this.onCollision = null;
+        };
+        Fixture.prototype.createProxies = function (broadPhase, xf) {
+            console.assert(this.proxyCount == 0);
+            this.proxyCount = this.shape.childCount;
+            for (var i = 0; i < this.proxyCount; ++i) {
+                var proxy = new FixtureProxy();
+                this.shape.computeAABB(proxy.aabb, xf, i);
+                proxy.fixture = this;
+                proxy.childIndex = i;
+                proxy.proxyId = broadPhase.addProxy(proxy);
+                this.proxies[i] = proxy;
+            }
+        };
+        Fixture.prototype.destroyProxies = function (broadPhase) {
+            for (var i = 0; i < this.proxyCount; ++i) {
+                broadPhase.removeProxy(this.proxies[i].proxyId);
+                this.proxies[i].proxyId = -1;
+            }
+            this.proxyCount = 0;
         };
         return Fixture;
     }());
@@ -272,6 +338,12 @@ var physics;
         Settings.epsilon = 1.192092896e-07;
         Settings.pi = 3.14159265359;
         /**
+         * 启用Diagnostics会导致引擎收集计时信息。
+         * 您可以查看解析contact、解析CCD和更新控制器所花的时间。
+         * 注意：如果您使用的是显示性能计数器的调试视图，则可能需要启用此功能。
+         */
+        Settings.enableDiagnostics = true;
+        /**
          * Fixture构造函数将其用作Fixture.collisionCategories成员的默认值。
          * 请注意，您可能需要根据上面的UseFPECollisionCategories设置进行更改
          */
@@ -284,6 +356,10 @@ var physics;
          * Fixture构造函数将其用作Fixture.ignoreCCDWith成员的默认值
          */
         Settings.defaultFixtureIgnoreCCDWith = physics.Category.none;
+        /**
+         * 这用于在动态树中增加AABBs。这允许代理在不触发树调整的情况下少量移动。这是以米为单位的。
+         */
+        Settings.aabbExtension = 0.1;
         /**
          * 用作碰撞和约束公差的小长度。
          * 通常，它被选择为在数值上有意义，但在视觉上却无关紧要
@@ -304,6 +380,10 @@ var physics;
          * 在给定随机输入的情况下，这会使引擎更稳定，但是如果多边形的创建速度更为重要，则可能需要将其设置为false。
          */
         Settings.useConvexHullPolygons = true;
+        /**
+         * 定义GJK算法的最大迭代次数
+         */
+        Settings.maxGJKIterations = 20;
         return Settings;
     }());
     physics.Settings = Settings;
@@ -390,6 +470,8 @@ var physics;
      */
     var AABB = /** @class */ (function () {
         function AABB(min, max) {
+            if (min === void 0) { min = new es.Vector2(); }
+            if (max === void 0) { max = new es.Vector2(); }
             this.lowerBound = min;
             this.upperBound = max;
         }
@@ -410,7 +492,7 @@ var physics;
         Object.defineProperty(AABB.prototype, "center", {
             /** 获取AABB的中心 */
             get: function () {
-                return es.Vector2.add(this.lowerBound, this.upperBound).multiplyScaler(0.5);
+                return this.lowerBound.add(this.upperBound).scale(0.5);
             },
             enumerable: true,
             configurable: true
@@ -418,7 +500,7 @@ var physics;
         Object.defineProperty(AABB.prototype, "extents", {
             /** 获取AABB的范围（半宽） */
             get: function () {
-                return es.Vector2.subtract(this.upperBound, this.lowerBound).multiplyScaler(0.5);
+                return this.upperBound.sub(this.lowerBound).scale(0.5);
             },
             enumerable: true,
             configurable: true
@@ -481,7 +563,7 @@ var physics;
          * @returns
          */
         AABB.prototype.isValid = function () {
-            var d = es.Vector2.subtract(this.upperBound, this.lowerBound);
+            var d = this.upperBound.sub(this.lowerBound);
             var valid = d.x >= 0 && d.y >= 0;
             valid = valid && this.lowerBound.isValid() && this.upperBound.isValid();
             return valid;
@@ -493,6 +575,10 @@ var physics;
         AABB.prototype.combine = function (aabb) {
             this.lowerBound = es.Vector2.min(this.lowerBound, aabb.lowerBound);
             this.upperBound = es.Vector2.max(this.upperBound, aabb.upperBound);
+        };
+        AABB.prototype.combine2 = function (aabb1, aabb2) {
+            this.lowerBound = es.Vector2.min(aabb1.lowerBound, aabb2.lowerBound);
+            this.upperBound = es.Vector2.max(aabb1.upperBound, aabb2.upperBound);
         };
         /**
          * 该aabb是否包含提供的AABB
@@ -513,8 +599,8 @@ var physics;
          * @param b
          */
         AABB.testOverlap = function (a, b) {
-            var d1 = es.Vector2.subtract(b.lowerBound, a.upperBound);
-            var d2 = es.Vector2.subtract(a.lowerBound, b.upperBound);
+            var d1 = b.lowerBound.sub(a.upperBound);
+            var d2 = a.lowerBound.sub(b.upperBound);
             if (d1.x > 0 || d1.y > 0)
                 return false;
             if (d2.x > 0 || d2.y > 0)
@@ -524,6 +610,24 @@ var physics;
         return AABB;
     }());
     physics.AABB = AABB;
+    var Collision = /** @class */ (function () {
+        function Collision() {
+        }
+        Collision.testOverlap = function (shapeA, indexA, shapeB, indexB, xfA, xfB) {
+            this._input = this._input ? this._input : new physics.DistanceInput();
+            this._input.proxyA.set(shapeA, indexA);
+            this._input.proxyB.set(shapeB, indexB);
+            this._input.transformA = xfA;
+            this._input.transformB = xfB;
+            this._input.useRadii = true;
+            var cache = new physics.SimplexCache();
+            var output = new physics.DistanceOutput();
+            cache = physics.Distance.computeDistance(output, this._input);
+            return output.distance < 10 * physics.Settings.epsilon;
+        };
+        return Collision;
+    }());
+    physics.Collision = Collision;
 })(physics || (physics = {}));
 var physics;
 (function (physics) {
@@ -581,6 +685,134 @@ var physics;
         return DistanceProxy;
     }());
     physics.DistanceProxy = DistanceProxy;
+    var SimplexVertex = /** @class */ (function () {
+        function SimplexVertex() {
+            this.a = 0;
+            this.indexA = 0;
+            this.indexB = 0;
+            this.w = es.Vector2.zero;
+            this.wA = es.Vector2.zero;
+            this.wB = es.Vector2.zero;
+        }
+        return SimplexVertex;
+    }());
+    var Simplex = /** @class */ (function () {
+        function Simplex() {
+            this.count = 0;
+        }
+        Simplex.prototype.readCache = function (cache, proxyA, transformA, proxyB, transformB) {
+            console.assert(cache.count <= 3);
+            this.count = cache.count;
+            for (var i = 0; i < this.count; ++i) {
+                var v = this.v.get(i);
+                v.indexA = cache.indexA[i];
+                v.indexB = cache.indexB[i];
+                var wALocal = proxyA.vertices[v.indexA];
+                var wBLocal = proxyB.vertices[v.indexB];
+                v.wA = physics.MathUtils.mul(transformA, wALocal);
+                v.wB = physics.MathUtils.mul(transformB, wBLocal);
+                v.w = v.wB.sub(v.wA);
+                v.a = 0;
+                this.v[i] = v;
+            }
+            if (this.count > 1) {
+                var metric1 = cache.metric;
+                var metric2 = this.getMetric();
+                if (metric2 < 0.5 * metric1 || 2 * metric1 < metric2 || metric2 < physics.Settings.epsilon) {
+                    this.count = 0;
+                }
+            }
+            if (this.count == 0) {
+                var v = this.v.get(0);
+                v.indexA = 0;
+                v.indexB = 0;
+                var wALocal = proxyA.vertices[0];
+                var wBLocal = proxyB.vertices[0];
+                v.wA = physics.MathUtils.mul(transformA, wALocal);
+                v.wB = physics.MathUtils.mul(transformB, wBLocal);
+                v.w = v.wB.sub(v.wA);
+                v.a = 1;
+                this.v.set(0, v);
+                this.count = 1;
+            }
+        };
+        Simplex.prototype.getMetric = function () {
+            switch (this.count) {
+                case 0:
+                    console.assert(false);
+                    return 0;
+                case 1:
+                    return 0;
+                case 2:
+                    return (this.v.get(0).w.sub(this.v.get(1).w)).magnitude();
+                case 3:
+                    return physics.MathUtils.cross(this.v.get(1).w.sub(this.v.get(0).w), this.v.get(2).w.sub(this.v.get(0).w));
+                default:
+                    console.assert(false);
+                    return 0;
+            }
+        };
+        return Simplex;
+    }());
+    var Distance = /** @class */ (function () {
+        function Distance() {
+        }
+        Distance.computeDistance = function (output, input) {
+            var cache = new SimplexCache();
+            if (physics.Settings.enableDiagnostics)
+                ++this.gjkCalls;
+            var simplex = new Simplex();
+            simplex.readCache(cache, input.proxyA, input.transformA, input.proxyB, input.transformB);
+            var saveA = new physics.FixedArray3();
+            var saveB = new physics.FixedArray3();
+            var iter = 0;
+            while (iter < physics.Settings.maxGJKIterations) {
+                var saveCount = simplex.count;
+                for (var i = 0; i < saveCount; ++i) {
+                    saveA.set(i, simplex.v.get(i).indexA);
+                    saveB.set(i, simplex.v.get(i).indexB);
+                }
+                switch (simplex.count) {
+                    case 1:
+                        break;
+                    case 2:
+                        // TODO: solve
+                        break;
+                    case 3:
+                        // TODO: solve
+                        break;
+                    default:
+                        console.assert(false);
+                        break;
+                }
+                if (simplex.count == 3)
+                    break;
+            }
+            return cache;
+        };
+        return Distance;
+    }());
+    physics.Distance = Distance;
+    var DistanceInput = /** @class */ (function () {
+        function DistanceInput() {
+            this.proxyA = new DistanceProxy();
+            this.proxyB = new DistanceProxy();
+        }
+        return DistanceInput;
+    }());
+    physics.DistanceInput = DistanceInput;
+    var DistanceOutput = /** @class */ (function () {
+        function DistanceOutput() {
+        }
+        return DistanceOutput;
+    }());
+    physics.DistanceOutput = DistanceOutput;
+    var SimplexCache = /** @class */ (function () {
+        function SimplexCache() {
+        }
+        return SimplexCache;
+    }());
+    physics.SimplexCache = SimplexCache;
 })(physics || (physics = {}));
 var physics;
 (function (physics) {
@@ -685,7 +917,270 @@ var physics;
          * @param userData
          */
         DynamicTree.prototype.addProxy = function (aabb, userData) {
-            // let proxyId = 
+            var proxyId = this.allocateNode();
+            var r = new es.Vector2(physics.Settings.aabbExtension, physics.Settings.aabbExtension);
+            this._nodes[proxyId].aabb.lowerBound = aabb.lowerBound.sub(r);
+            this._nodes[proxyId].aabb.upperBound = aabb.upperBound.add(r);
+            this._nodes[proxyId].userData = userData;
+            this._nodes[proxyId].height = 0;
+            this.insertLeaf(proxyId);
+            return proxyId;
+        };
+        DynamicTree.prototype.removeProxy = function (proxyId) {
+            console.assert(0 <= proxyId && proxyId < this._nodeCapacity);
+            console.assert(this._nodes[proxyId].isLeaf());
+            this.removeLeaf(proxyId);
+            this.freeNode(proxyId);
+        };
+        DynamicTree.prototype.moveProxy = function (proxyId, aabb, displacement) {
+            console.assert(0 <= proxyId && proxyId < this._nodeCapacity);
+            console.assert(this._nodes[proxyId].isLeaf());
+            if (this._nodes[proxyId].aabb.contains(aabb)) {
+                return false;
+            }
+            this.removeLeaf(proxyId);
+            var b = aabb;
+            var r = new es.Vector2(physics.Settings.aabbExtension, physics.Settings.aabbExtension);
+            b.lowerBound = b.lowerBound.sub(r);
+            b.upperBound = b.upperBound.add(r);
+            var d = displacement.scale(physics.Settings.aabbExtension);
+            if (d.x < 0)
+                b.lowerBound.x += d.x;
+            else
+                b.upperBound.x += d.x;
+            if (d.y < 0)
+                b.lowerBound.y += d.y;
+            else
+                b.upperBound.y += d.y;
+            this._nodes[proxyId].aabb = b;
+            this.insertLeaf(proxyId);
+            return true;
+        };
+        DynamicTree.prototype.getUserData = function (proxyId) {
+            console.assert(0 <= proxyId && proxyId < this._nodeCapacity);
+            return this._nodes[proxyId].userData;
+        };
+        DynamicTree.prototype.getFatAABB = function (proxyId) {
+            console.assert(0 <= proxyId && proxyId < this._nodeCapacity);
+            var fatAABB = this._nodes[proxyId].aabb;
+            return fatAABB;
+        };
+        DynamicTree.prototype.allocateNode = function () {
+            if (this._freeList == DynamicTree.nullNode) {
+                console.assert(this._nodeCount == this._nodeCapacity);
+                var oldNodes = this._nodes;
+                this._nodeCapacity *= 2;
+                this._nodes = oldNodes.slice(0, this._nodeCount);
+                for (var i = this._nodeCount; i < this._nodeCapacity - 1; ++i) {
+                    this._nodes[i] = new TreeNode();
+                    this._nodes[i].parentOrNext = i + 1;
+                    this._nodes[i].height = -1;
+                }
+                this._nodes[this._nodeCapacity - 1] = new TreeNode();
+                this._nodes[this._nodeCapacity - 1].parentOrNext = DynamicTree.nullNode;
+                this._nodes[this._nodeCapacity - 1].height = -1;
+                this._freeList = this._nodeCount;
+            }
+            var nodeId = this._freeList;
+            this._freeList = this._nodes[nodeId].parentOrNext;
+            this._nodes[nodeId].parentOrNext = DynamicTree.nullNode;
+            this._nodes[nodeId].child1 = DynamicTree.nullNode;
+            this._nodes[nodeId].child2 = DynamicTree.nullNode;
+            this._nodes[nodeId].height = 0;
+            this._nodes[nodeId].userData = new physics.FixtureProxy();
+            ++this._nodeCount;
+            return nodeId;
+        };
+        DynamicTree.prototype.freeNode = function (nodeId) {
+            console.assert(0 <= nodeId && nodeId < this._nodeCapacity);
+            console.assert(0 < this._nodeCount);
+            this._nodes[nodeId].parentOrNext = this._freeList;
+            this._nodes[nodeId].height = -1;
+            this._freeList = nodeId;
+            --this._nodeCount;
+        };
+        DynamicTree.prototype.insertLeaf = function (leaf) {
+            if (this._root == DynamicTree.nullNode) {
+                this._root = leaf;
+                this._nodes[this._root].parentOrNext = DynamicTree.nullNode;
+                return;
+            }
+            var leafAABB = this._nodes[leaf].aabb;
+            var index = this._root;
+            while (this._nodes[index].isLeaf() == false) {
+                var child1 = this._nodes[index].child1;
+                var child2 = this._nodes[index].child2;
+                var area = this._nodes[index].aabb.perimeter;
+                var combinedAABB = new physics.AABB();
+                combinedAABB.combine2(this._nodes[index].aabb, leafAABB);
+                var combinedArea = combinedAABB.perimeter;
+                var cost = 2 * combinedArea;
+                var inheritanceCost = 2 * (combinedArea - area);
+                var cost1 = 0;
+                if (this._nodes[child1].isLeaf()) {
+                    var aabb = new physics.AABB();
+                    aabb.combine2(leafAABB, this._nodes[child1].aabb);
+                    cost1 = aabb.perimeter + inheritanceCost;
+                }
+                else {
+                    var aabb = new physics.AABB();
+                    aabb.combine2(leafAABB, this._nodes[child1].aabb);
+                    var oldArea = this._nodes[child1].aabb.perimeter;
+                    var newArea = aabb.perimeter;
+                    cost1 = (newArea - oldArea) + inheritanceCost;
+                }
+                var cost2 = 0;
+                if (this._nodes[child2].isLeaf()) {
+                    var aabb = new physics.AABB();
+                    aabb.combine2(leafAABB, this._nodes[child2].aabb);
+                    cost2 = aabb.perimeter + inheritanceCost;
+                }
+                else {
+                    var aabb = new physics.AABB();
+                    aabb.combine2(leafAABB, this._nodes[child2].aabb);
+                    var oldArea = this._nodes[child2].aabb.perimeter;
+                    var newArea = aabb.perimeter;
+                    cost2 = newArea - oldArea + inheritanceCost;
+                }
+                if (cost < cost1 && cost1 < cost2) {
+                    break;
+                }
+                if (cost1 < cost2)
+                    index = child1;
+                else
+                    index = child2;
+            }
+            var sibling = index;
+            var oldParent = this._nodes[sibling].parentOrNext;
+            var newParent = this.allocateNode();
+            this._nodes[newParent].parentOrNext = oldParent;
+            this._nodes[newParent].userData = new physics.FixtureProxy();
+            this._nodes[newParent].aabb.combine2(leafAABB, this._nodes[sibling].aabb);
+            this._nodes[newParent].height = this._nodes[sibling].height + 1;
+            if (oldParent != DynamicTree.nullNode) {
+                if (this._nodes[oldParent].child1 == sibling) {
+                    this._nodes[oldParent].child1 = newParent;
+                }
+                else {
+                    this._nodes[oldParent].child2 = newParent;
+                }
+                this._nodes[newParent].child1 = sibling;
+                this._nodes[newParent].child2 = leaf;
+                this._nodes[sibling].parentOrNext = newParent;
+                this._nodes[leaf].parentOrNext = newParent;
+            }
+            else {
+                this._nodes[newParent].child1 = sibling;
+                this._nodes[newParent].child2 = leaf;
+                this._nodes[sibling].parentOrNext = newParent;
+                this._nodes[leaf].parentOrNext = newParent;
+                this._root = newParent;
+            }
+            index = this._nodes[leaf].parentOrNext;
+            while (index != DynamicTree.nullNode) {
+                index = this.balance(index);
+                var child1 = this._nodes[index].child1;
+                var child2 = this._nodes[index].child2;
+                console.assert(child1 != DynamicTree.nullNode);
+                console.assert(child2 != DynamicTree.nullNode);
+                this._nodes[index].height = 1 + Math.max(this._nodes[child1].height, this._nodes[child2].height);
+                this._nodes[index].aabb.combine2(this._nodes[child1].aabb, this._nodes[child2].aabb);
+                index = this._nodes[index].parentOrNext;
+            }
+        };
+        DynamicTree.prototype.removeLeaf = function (leaf) {
+            if (leaf == this._root) {
+                this._root = DynamicTree.nullNode;
+                return;
+            }
+            var parent = this._nodes[leaf].parentOrNext;
+            var grandParent = this._nodes[parent].parentOrNext;
+            var sibling = 0;
+            if (this._nodes[parent].child1 == leaf) {
+                sibling = this._nodes[parent].child2;
+            }
+            else {
+                sibling = this._nodes[parent].child1;
+            }
+            if (grandParent != DynamicTree.nullNode) {
+                if (this._nodes[grandParent].child1 == parent) {
+                    this._nodes[grandParent].child1 = sibling;
+                }
+                else {
+                    this._nodes[grandParent].child2 = sibling;
+                }
+                this._nodes[sibling].parentOrNext = grandParent;
+                this.freeNode(parent);
+                var index = grandParent;
+                while (index != DynamicTree.nullNode) {
+                    index = this.balance(index);
+                    var child1 = this._nodes[index].child1;
+                    var child2 = this._nodes[index].child2;
+                    this._nodes[index].aabb.combine2(this._nodes[child1].aabb, this._nodes[child2].aabb);
+                    this._nodes[index].height = 1 + Math.max(this._nodes[child1].height, this._nodes[child2].height);
+                    index = this._nodes[index].parentOrNext;
+                }
+            }
+            else {
+                this._root = sibling;
+                this._nodes[sibling].parentOrNext = DynamicTree.nullNode;
+                this.freeNode(parent);
+            }
+        };
+        DynamicTree.prototype.balance = function (iA) {
+            console.assert(iA != DynamicTree.nullNode);
+            var A = this._nodes[iA];
+            if (A.isLeaf() || A.height < 2)
+                return iA;
+            var iB = A.child1;
+            var iC = A.child2;
+            console.assert(0 <= iB && iB < this._nodeCapacity);
+            console.assert(0 <= iC && iC < this._nodeCapacity);
+            var B = this._nodes[iB];
+            var C = this._nodes[iC];
+            var balance = C.height - B.height;
+            if (balance > 1) {
+                var iF = C.child1;
+                var iG = C.child2;
+                var F = this._nodes[iF];
+                var G = this._nodes[iG];
+                console.assert(0 <= iF && iF < this._nodeCapacity);
+                console.assert(0 <= iG && iG < this._nodeCapacity);
+                C.child1 = iA;
+                C.parentOrNext = A.parentOrNext;
+                A.parentOrNext = iC;
+                if (C.parentOrNext != DynamicTree.nullNode) {
+                    if (this._nodes[C.parentOrNext].child1 == iA) {
+                        this._nodes[C.parentOrNext].child1 = iC;
+                    }
+                    else {
+                        console.assert(this._nodes[C.parentOrNext].child2 == iA);
+                        this._nodes[C.parentOrNext].child2 = iC;
+                    }
+                }
+                else {
+                    this._root = iC;
+                }
+                if (F.height > G.height) {
+                    C.child2 = iF;
+                    A.child2 = iG;
+                    G.parentOrNext = iA;
+                    A.aabb.combine2(B.aabb, G.aabb);
+                    C.aabb.combine2(A.aabb, F.aabb);
+                    A.height = 1 + Math.max(B.height, G.height);
+                    C.height = 1 + Math.max(A.height, F.height);
+                }
+                else {
+                    C.child2 = iG;
+                    A.child2 = iF;
+                    F.parentOrNext = iA;
+                    A.aabb.combine2(B.aabb, F.aabb);
+                    C.aabb.combine2(A.aabb, G.aabb);
+                    A.height = 1 + Math.max(B.height, F.height);
+                    C.height = 1 + Math.max(A.height, G.height);
+                }
+                return iC;
+            }
         };
         DynamicTree.nullNode = -1;
         return DynamicTree;
@@ -694,6 +1189,27 @@ var physics;
 })(physics || (physics = {}));
 var physics;
 (function (physics) {
+    var Pair = /** @class */ (function () {
+        function Pair() {
+            this.proxyIdA = 0;
+            this.proxyIdB = 0;
+        }
+        Pair.prototype.compareTo = function (other) {
+            if (this.proxyIdA < other.proxyIdA) {
+                return -1;
+            }
+            if (this.proxyIdA == other.proxyIdA) {
+                if (this.proxyIdB < other.proxyIdB) {
+                    return -1;
+                }
+                if (this.proxyIdB == other.proxyIdB) {
+                    return 0;
+                }
+            }
+            return 1;
+        };
+        return Pair;
+    }());
     /**
      * 广义阶段用于计算对并执行体积查询和射线投射。
      * 这个广义阶段不会持久存在对。
@@ -702,7 +1218,101 @@ var physics;
      */
     var DynamicTreeBroadPhase = /** @class */ (function () {
         function DynamicTreeBroadPhase() {
+            this._moveCapacity = 0;
+            this._moveCount = 0;
+            this._pairCapacity = 0;
+            this._pairCount = 0;
+            this._proxyCount = 0;
+            this._queryProxyId = 0;
+            this._tree = new physics.DynamicTree();
+            this._queryCallback = this.queryCallback;
+            this._proxyCount = 0;
+            this._pairCapacity = 16;
+            this._pairCount = 0;
+            this._pairBuffer = [];
+            this._moveCapacity = 16;
+            this._moveCount = 0;
+            this._moveBuffer = [];
         }
+        Object.defineProperty(DynamicTreeBroadPhase.prototype, "proxyCount", {
+            get: function () {
+                return this._proxyCount;
+            },
+            enumerable: true,
+            configurable: true
+        });
+        Object.defineProperty(DynamicTreeBroadPhase.prototype, "treeQuality", {
+            get: function () {
+                return this._tree.areaRatio;
+            },
+            enumerable: true,
+            configurable: true
+        });
+        Object.defineProperty(DynamicTreeBroadPhase.prototype, "treeBalance", {
+            get: function () {
+                return this._tree.maxBalance;
+            },
+            enumerable: true,
+            configurable: true
+        });
+        Object.defineProperty(DynamicTreeBroadPhase.prototype, "treeHeight", {
+            get: function () {
+                return this._tree.height;
+            },
+            enumerable: true,
+            configurable: true
+        });
+        DynamicTreeBroadPhase.prototype.addProxy = function (proxy) {
+            var proxyId = this._tree.addProxy(proxy.aabb, proxy);
+            ++this._proxyCount;
+            this.bufferMove(proxyId);
+            return proxyId;
+        };
+        DynamicTreeBroadPhase.prototype.removeProxy = function (proxyId) {
+            this.unBufferMove(proxyId);
+            --this._proxyCount;
+            this._tree.removeProxy(proxyId);
+        };
+        DynamicTreeBroadPhase.prototype.touchProxy = function (proxyId) {
+            this.bufferMove(proxyId);
+        };
+        DynamicTreeBroadPhase.prototype.bufferMove = function (proxyId) {
+            if (this._moveCount == this._moveCapacity) {
+                var oldBuffer = this._moveBuffer;
+                this._moveCapacity *= 2;
+                this._moveBuffer = oldBuffer.slice(0, this._moveCount);
+            }
+            this._moveBuffer[this._moveCount] = proxyId;
+            ++this._moveCount;
+        };
+        DynamicTreeBroadPhase.prototype.unBufferMove = function (proxyId) {
+            for (var i = 0; i < this._moveCount; ++i) {
+                if (this._moveBuffer[i] == proxyId)
+                    this._moveBuffer[i] = physics.DynamicTree.nullNode;
+            }
+        };
+        DynamicTreeBroadPhase.prototype.queryCallback = function (proxyId) {
+            if (proxyId == this._queryProxyId)
+                return true;
+            if (this._pairCount == this._pairCapacity) {
+                var oldBuffer = this._pairBuffer;
+                this._pairCapacity *= 2;
+                this._pairBuffer = oldBuffer.slice(0, this._pairCount);
+            }
+            this._pairBuffer[this._pairCount].proxyIdA = Math.min(proxyId, this._queryProxyId);
+            this._pairBuffer[this._pairCount].proxyIdB = Math.max(proxyId, this._queryProxyId);
+            ++this._pairCount;
+            return true;
+        };
+        DynamicTreeBroadPhase.prototype.getProxy = function (proxyId) {
+            return this._tree.getUserData(proxyId);
+        };
+        DynamicTreeBroadPhase.prototype.testOverlap = function (proxyIdA, proxyIdB) {
+            var aabbA = this._tree.getFatAABB(proxyIdA);
+            var aabbB = this._tree.getFatAABB(proxyIdB);
+            return physics.AABB.testOverlap(aabbA, aabbB);
+        };
+        DynamicTreeBroadPhase.nullProxy = -1;
         return DynamicTreeBroadPhase;
     }());
     physics.DynamicTreeBroadPhase = DynamicTreeBroadPhase;
@@ -1244,7 +1854,7 @@ var physics;
                 this._normals.length = 0;
             for (var i = 0; i < this._vertices.length; ++i) {
                 var next = i + 1 < this._vertices.length ? i + 1 : 0;
-                var edge = es.Vector2.subtract(this._vertices[next], this._vertices[i]);
+                var edge = this._vertices[next].sub(this._vertices[i]);
                 console.assert(edge.lengthSquared() > physics.Settings.epsilon * physics.Settings.epsilon);
                 var temp = new es.Vector2(edge.y, -edge.x);
                 es.Vector2Ext.normalize(temp);
@@ -1265,8 +1875,8 @@ var physics;
             s.multiplyScaler(1 / this.vertices.length);
             var k_inv3 = 1 / 3;
             for (var i = 0; i < this.vertices.length; ++i) {
-                var e1 = es.Vector2.subtract(this.vertices[i], s);
-                var e2 = i + 1 < this.vertices.length ? es.Vector2.subtract(this.vertices[i + 1], s) : es.Vector2.subtract(this.vertices[0], s);
+                var e1 = this.vertices[i].sub(s);
+                var e2 = i + 1 < this.vertices.length ? this.vertices[i + 1].sub(s) : this.vertices[0].sub(s);
                 var d = physics.MathUtils.cross(e1, e2);
                 var triangleArea = 0.5 * d;
                 area += triangleArea;
@@ -1283,12 +1893,12 @@ var physics;
             center.multiplyScaler(1 / area);
             this.massData.centroid = es.Vector2.add(center, s);
             this.massData.inertia = this._density * I;
-            this.massData.inertia += this.massData.mass * (es.Vector2.dot(this.massData.centroid, this.massData.centroid) - es.Vector2.dot(center, center));
+            this.massData.inertia += this.massData.mass * (this.massData.centroid.dot(this.massData.centroid) - center.dot(center));
         };
         PolygonShape.prototype.testPoint = function (transform, point) {
-            var pLocal = physics.MathUtils.mul_rv(transform.q, es.Vector2.subtract(point, transform.p));
+            var pLocal = physics.MathUtils.mul(transform.q, point.sub(transform.p));
             for (var i = 0; i < this.vertices.length; ++i) {
-                var dot = es.Vector2.dot(this.normals[i], es.Vector2.subtract(pLocal, this.vertices[i]));
+                var dot = this.normals[i].dot(pLocal.sub(this.vertices[i]));
                 if (dot > 0) {
                     return false;
                 }
@@ -1296,14 +1906,14 @@ var physics;
             return true;
         };
         PolygonShape.prototype.rayCast = function (output, input, transform, childIndex) {
-            var p1 = physics.MathUtils.mul_rv(transform.q, es.Vector2.subtract(input.point1, transform.p));
-            var p2 = physics.MathUtils.mul_rv(transform.q, es.Vector2.subtract(input.point2, transform.p));
-            var d = es.Vector2.subtract(p2, p1);
+            var p1 = physics.MathUtils.mul(transform.q, input.point1.sub(transform.p));
+            var p2 = physics.MathUtils.mul(transform.q, input.point2.sub(transform.p));
+            var d = p2.sub(p1);
             var lower = 0, upper = input.maxFraction;
             var index = -1;
             for (var i = 0; i < this.vertices.length; ++i) {
-                var numerator = es.Vector2.dot(this.normals[i], es.Vector2.subtract(this.vertices[i], p1));
-                var denominator = es.Vector2.dot(this.normals[i], d);
+                var numerator = this.normals[i].dot(this.vertices[i].sub(p1));
+                var denominator = this.normals[i].dot(d);
                 if (denominator == 0) {
                     if (numerator < 0) {
                         return false;
@@ -1325,28 +1935,28 @@ var physics;
             console.assert(0 <= lower && lower <= input.maxFraction);
             if (index >= 0) {
                 output.fraction = lower;
-                output.normal = physics.MathUtils.mul_rv(transform.q, this.normals[index]);
+                output.normal = physics.MathUtils.mul(transform.q, this.normals[index]);
                 return true;
             }
             return false;
         };
         PolygonShape.prototype.computeAABB = function (aabb, transform, childIndex) {
-            var lower = physics.MathUtils.mul_tv(transform, this.vertices[0]);
+            var lower = physics.MathUtils.mul(transform, this.vertices[0]);
             var upper = lower.clone();
             for (var i = 1; i < this.vertices.length; ++i) {
-                var v = physics.MathUtils.mul_tv(transform, this.vertices[i]);
+                var v = physics.MathUtils.mul(transform, this.vertices[i]);
                 lower = es.Vector2.min(lower, v);
                 upper = es.Vector2.max(upper, v);
             }
             var r = new es.Vector2(this.radius, this.radius);
-            aabb.lowerBound = es.Vector2.subtract(lower, r);
+            aabb.lowerBound = lower.sub(r);
             aabb.upperBound = es.Vector2.add(upper, r);
         };
         PolygonShape.prototype.computeSubmergedArea = function (normal, offset, xf, sc) {
             sc.x = 0;
             sc.y = 0;
-            var normalL = physics.MathUtils.mul_rv(xf.q, normal);
-            var offsetL = offset - es.Vector2.dot(normal, xf.p);
+            var normalL = physics.MathUtils.mul(xf.q, normal);
+            var offsetL = offset - normal.dot(xf.p);
             var depths = [];
             var diveCount = 0;
             var intoIndex = -1;
@@ -1354,7 +1964,7 @@ var physics;
             var lastSubmerged = false;
             var i;
             for (i = 0; i < this.vertices.length; i++) {
-                depths[i] = es.Vector2.dot(normalL, this.vertices[i]) - offsetL;
+                depths[i] = normalL.dot(this.vertices[i]) - offsetL;
                 var isSubmerged = depths[i] < -physics.Settings.epsilon;
                 if (i > 0) {
                     if (isSubmerged) {
@@ -1375,7 +1985,7 @@ var physics;
             switch (diveCount) {
                 case 0:
                     if (lastSubmerged) {
-                        sc = physics.MathUtils.mul_tv(xf, this.massData.centroid);
+                        sc = physics.MathUtils.mul(xf, this.massData.centroid);
                         return this.massData.mass / this.density;
                     }
                     return 0;
@@ -1407,8 +2017,8 @@ var physics;
                 else
                     p3 = this.vertices[i];
                 {
-                    var e1 = es.Vector2.subtract(p2, intoVec);
-                    var e2 = es.Vector2.subtract(p3, intoVec);
+                    var e1 = p2.sub(intoVec);
+                    var e2 = p3.sub(intoVec);
                     var d = physics.MathUtils.cross(e1, e2);
                     var triangleArea = 0.5 * d;
                     area += triangleArea;
@@ -1417,7 +2027,7 @@ var physics;
                 p2 = p3.clone();
             }
             center.multiplyScaler(1 / area);
-            sc = physics.MathUtils.mul_tv(xf, center);
+            sc = physics.MathUtils.mul(xf, center);
             return area;
         };
         PolygonShape.prototype.clone = function () {
@@ -1484,6 +2094,39 @@ var physics;
         return FixedArray2;
     }());
     physics.FixedArray2 = FixedArray2;
+    var FixedArray3 = /** @class */ (function () {
+        function FixedArray3() {
+        }
+        FixedArray3.prototype.get = function (index) {
+            switch (index) {
+                case 0:
+                    return this._value0;
+                case 1:
+                    return this._value1;
+                case 2:
+                    return this._value2;
+                default:
+                    throw new Error('index out of range');
+            }
+        };
+        FixedArray3.prototype.set = function (index, value) {
+            switch (index) {
+                case 0:
+                    this._value0 = value;
+                    break;
+                case 1:
+                    this._value1 = value;
+                    break;
+                case 2:
+                    this._value2 = value;
+                    break;
+                default:
+                    throw new Error('index out of range');
+            }
+        };
+        return FixedArray3;
+    }());
+    physics.FixedArray3 = FixedArray3;
 })(physics || (physics = {}));
 var physics;
 (function (physics) {
@@ -1506,7 +2149,7 @@ var physics;
             var angle = (1 - beta) * this.a0 + beta * this.a;
             xfb.q.set(angle);
             // 转向原点 
-            xfb.p.subtract(MathUtils.mul(xfb.q, this.localCenter));
+            xfb.p.sub(MathUtils.mul(xfb.q, this.localCenter));
         };
         /**
          * 向前推进，产生一个新的初始状态。
@@ -1515,7 +2158,7 @@ var physics;
         Sweep.prototype.advance = function (alpha) {
             console.assert(this.alpha0 < 1);
             var beta = (alpha - this.alpha0) / (1 - this.alpha0);
-            this.c0.add(es.Vector2.subtract(this.c, this.c0).multiplyScaler(beta));
+            this.c0.add(this.c.sub(this.c0).multiplyScaler(beta));
             this.a0 += beta * (this.a - this.a0);
             this.alpha0 = alpha;
         };
@@ -1618,25 +2261,27 @@ var physics;
     var MathUtils = /** @class */ (function () {
         function MathUtils() {
         }
-        MathUtils.mul = function (q, v) {
-            return new es.Vector2(q.c * v.x - q.s * v.y, q.s * v.x + q.c * v.y);
-        };
-        MathUtils.mul_tv = function (t, v) {
-            var x = (t.q.c * v.x - t.q.s * v.y) + t.p.x;
-            var y = (t.q.s * v.x + t.q.c * v.y) + t.p.y;
-            return new es.Vector2(x, y);
-        };
-        MathUtils.mul_mv = function (a, v) {
-            return new es.Vector2(v.x * a.ex.x + v.y * a.ex.y, v.x * a.ey.x + v.y * a.ey.y);
-        };
-        MathUtils.mul_rr = function (q, r) {
-            var qr = new Rot(0);
-            qr.s = q.c * r.s - q.s * r.c;
-            qr.c = q.c * r.c + q.s * r.s;
-            return qr;
-        };
-        MathUtils.mul_rv = function (q, v) {
-            return new es.Vector2(q.c * v.x + q.s * v.y, -q.s * v.x + q.c * v.y);
+        MathUtils.mul = function (a, b) {
+            if (a instanceof Transform && b instanceof es.Vector2) {
+                var x = (a.q.c * b.x - a.q.s * b.y) + a.p.x;
+                var y = (a.q.s * b.x + a.q.c * b.y) + a.p.y;
+                return new es.Vector2(x, y);
+            }
+            if (a instanceof Rot && b instanceof es.Vector2) {
+                return new es.Vector2(a.c * b.x - a.s * b.y, a.s * b.x + a.c * b.y);
+            }
+            if (a instanceof Mat22 && b instanceof es.Vector2) {
+                return new es.Vector2(b.x * a.ex.x + b.y * a.ex.y, b.x * a.ey.x + b.y * a.ey.y);
+            }
+            if (a instanceof Rot && b instanceof Rot) {
+                var qr = new Rot(0);
+                qr.s = a.c * b.s - a.s * b.c;
+                qr.c = a.c * b.c + a.s * b.s;
+                return qr;
+            }
+            if (a instanceof Rot && b instanceof es.Vector2) {
+                return new es.Vector2(a.c * b.x + a.s * b.y, -a.s * b.x + a.c * b.y);
+            }
         };
         MathUtils.cross = function (a, b) {
             return a.x * b.y - a.y * b.x;
@@ -1776,7 +2421,7 @@ var physics;
                 var triangleArea = 0.5 * (current.x * next.y - current.y * next.x);
                 area += triangleArea;
                 // 面积加权质心 
-                c.add(es.Vector2.multiplyScaler(es.Vector2.add(current, next), triangleArea * inv3));
+                c.add(current.add(next).scale(triangleArea * inv3));
             }
             c.multiplyScaler(1 / area);
             return c;
@@ -1838,7 +2483,7 @@ var physics;
             var e_3, _a;
             console.assert(!this.attackedToBody, "Body使用的缩放顶点会导致行为不稳定 ");
             for (var i = 0; i < this.length; i++)
-                this[i] = es.Vector2.multiply(this[i], value);
+                this[i] = this[i].multiply(value);
             if (this.holes != null && this.holes.length > 0) {
                 try {
                     for (var _b = __values(this.holes), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -1899,11 +2544,11 @@ var physics;
                 return true;
             for (var i = 0; i < this.length; ++i) {
                 var next = i + 1 < this.length ? i + 1 : 0;
-                var edge = es.Vector2.subtract(this[next], this[i]);
+                var edge = this[next].sub(this[i]);
                 for (var j = 0; j < this.length; ++j) {
                     if (j == i || j == next)
                         continue;
-                    var r = es.Vector2.subtract(this[j], this[i]);
+                    var r = this[j].sub(this[i]);
                     var s = edge.x * r.y - edge.y * r.x;
                     if (s <= 0)
                         return false;
@@ -1970,8 +2615,8 @@ var physics;
                         ie = j;
                         continue;
                     }
-                    var r = es.Vector2.subtract(vertices[ie], vertices[hull[m]]);
-                    var v = es.Vector2.subtract(vertices[j], vertices[hull[m]]);
+                    var r = vertices[ie].sub(vertices[hull[m]]);
+                    var v = vertices[j].sub(vertices[hull[m]]);
                     var c = physics.MathUtils.cross(r, v);
                     if (c < 0) {
                         ie = j;
@@ -2171,8 +2816,7 @@ var physics;
                 this._sweep.a0 = rotation;
                 this._sweep.a = rotation;
             }
-            // world.add
-            // TODO: addbody
+            this.world.addBody(this);
         }
         Object.defineProperty(Body.prototype, "world", {
             get: function () {
@@ -2221,7 +2865,7 @@ var physics;
                 console.assert(!Number.isNaN(value.x) && !Number.isNaN(value.y));
                 if (this._bodyType == BodyType.static)
                     return;
-                if (es.Vector2.dot(value, value) > 0)
+                if (value.dot(value) > 0)
                     this.isAwake = true;
                 this._linearVelocity = value;
             },
@@ -2323,10 +2967,22 @@ var physics;
                     return;
                 if (value) {
                     var broadPhase = this._world.contactManager.broadPhase;
-                    // for (let i = 0; i < this.fixtureList.length; i ++)
-                    //     this.fixtureList[i].create
-                    // TODO: createProxies
+                    for (var i = 0; i < this.fixtureList.length; i++)
+                        this.fixtureList[i].createProxies(broadPhase, this._xf);
                 }
+                else {
+                    var broadPhase = this._world.contactManager.broadPhase;
+                    for (var i = 0; i < this.fixtureList.length; i++)
+                        this.fixtureList[i].destroyProxies(broadPhase);
+                    var ce = this.contactList;
+                    while (ce != null) {
+                        var ce0 = ce;
+                        ce = ce.next;
+                        this._world.contactManager.destroy(ce0.contact);
+                    }
+                    this.contactList = null;
+                }
+                this._enabled = value;
             },
             enumerable: true,
             configurable: true
@@ -2343,8 +2999,7 @@ var physics;
                     return;
                 this._fixedRotation = value;
                 this._angularVelocity = 0;
-                // this.res
-                // TODO: resetMassData
+                this.resetMassData();
             },
             enumerable: true,
             configurable: true
@@ -2369,10 +3024,10 @@ var physics;
              * 以显示单位获取/设置世界原点位置
              */
             get: function () {
-                return es.Vector2.multiplyScaler(this._xf.p, physics.FSConvert.simToDisplay);
+                return this._xf.p.scale(physics.FSConvert.simToDisplay);
             },
             set: function (value) {
-                this.position = es.Vector2.multiplyScaler(value, physics.FSConvert.displayToSim);
+                this.position = value.scale(physics.FSConvert.displayToSim);
             },
             enumerable: true,
             configurable: true
@@ -2448,8 +3103,8 @@ var physics;
                     return;
                 var oldCenter = this._sweep.c.clone();
                 this._sweep.localCenter = value;
-                this._sweep.c0 = this._sweep.c = physics.MathUtils.mul_tv(this._xf, this._sweep.localCenter);
-                var a = es.Vector2.subtract(this._sweep.c, oldCenter);
+                this._sweep.c0 = this._sweep.c = physics.MathUtils.mul(this._xf, this._sweep.localCenter);
+                var a = this._sweep.c.sub(oldCenter);
                 this._linearVelocity.add(new es.Vector2(-this._angularVelocity * a.y, this._angularVelocity * a.x));
             },
             enumerable: true,
@@ -2479,14 +3134,14 @@ var physics;
              * 获取或设置物体绕局部原点的旋转惯量。 通常以kg-m ^ 2为单位
              */
             get: function () {
-                return this._inertia + this.mass * es.Vector2.dot(this._sweep.localCenter, this._sweep.localCenter);
+                return this._inertia + this.mass * this._sweep.localCenter.dot(this._sweep.localCenter);
             },
             set: function (value) {
                 console.assert(!Number.isNaN(value));
                 if (this._bodyType != BodyType.dynamic)
                     return;
                 if (value > 0 && !this._fixedRotation) {
-                    this._inertia = value - this.mass * es.Vector2.dot(this.localCenter, this.localCenter);
+                    this._inertia = value - this.mass * this.localCenter.dot(this.localCenter);
                     console.assert(this._inertia > 0);
                     this._invI = 1 / this._inertia;
                 }
@@ -2637,12 +3292,73 @@ var physics;
             }
             if (this._enabled) {
                 var broadPhase = this._world.contactManager.broadPhase;
-                // TODO: destoryProxies
+                fixture.destroyProxies(broadPhase);
             }
             new es.List(this.fixtureList).remove(fixture);
-            // TODO: fixture.destory
+            fixture.destroy();
             fixture.body = null;
-            // TODO: resetMassData
+            this.resetMassData();
+        };
+        Body.prototype.resetMassData = function () {
+            this._mass = 0;
+            this._invMass = 0;
+            this._inertia = 0;
+            this._invI = 0;
+            this._sweep.localCenter = es.Vector2.zero;
+            if (this.bodyType == BodyType.kinematic) {
+                this._sweep.c0 = this._xf.p;
+                this._sweep.c = this._xf.p;
+                this._sweep.a0 = this._sweep.a;
+                return;
+            }
+            console.assert(this.bodyType == BodyType.dynamic || this.bodyType == BodyType.static);
+            var localCenter = es.Vector2.zero;
+            for (var i = 0; i < this.fixtureList.length; i++) {
+                var f = this.fixtureList[i];
+                if (f.shape._density == 0)
+                    continue;
+                var massData = f.shape.massData;
+                this._mass += massData.mass;
+                this.localCenter = this.localCenter.add(massData.centroid.scale(massData.mass));
+                this._inertia += massData.inertia;
+            }
+            if (this.bodyType == BodyType.static) {
+                this._sweep.c0 = this._sweep.c = this._xf.p;
+                return;
+            }
+            if (this._mass > 0) {
+                this._invMass = 1 / this._mass;
+                localCenter = localCenter.scale(this._invMass);
+            }
+            else {
+                this._mass = 1;
+                this._invMass = 1;
+            }
+            if (this._invMass > 0 && !this._fixedRotation) {
+                this._inertia -= this._mass * localCenter.dot(localCenter);
+                console.assert(this._inertia > 0);
+                this._invI = 1 / this._inertia;
+            }
+            else {
+                this._inertia = 0;
+                this._invI = 0;
+            }
+            var oldCenter = this._sweep.c;
+            this._sweep.localCenter = localCenter;
+            this._sweep.c0 = this._sweep.c = physics.MathUtils.mul(this._xf, this._sweep.localCenter);
+            var a = this._sweep.c.sub(oldCenter);
+            this._linearVelocity = this._linearVelocity.add(new es.Vector2(-this._angularVelocity * a.y, this._angularVelocity * a.x));
+        };
+        Body.prototype.shouldCollide = function (other) {
+            if (this._bodyType != BodyType.dynamic && other._bodyType != BodyType.dynamic)
+                return false;
+            for (var jn = this.jointList; jn != null; jn = jn.next) {
+                if (jn.other == other) {
+                    if (jn.joint.collideConnected == false)
+                        return false;
+                }
+            }
+            return true;
         };
         return Body;
     }());
@@ -2792,6 +3508,85 @@ var physics;
             }
             contact.destroy();
         };
+        ContactManager.prototype.collide = function () {
+            var list = [];
+            if (physics.Defined.USE_ACTIVE_CONTACT_SET) {
+                this.activeList.concat(Array.from(this.activeContacts));
+                list = this.activeList;
+            }
+            else {
+                list = this.contactList;
+            }
+            for (var i = 0; i < list.length; i++) {
+                var c = list[i];
+                var fixtureA = c.fixtureA;
+                var fixtureB = c.fixtureB;
+                var indexA = c.childIndexA;
+                var indexB = c.childIndexB;
+                var bodyA = fixtureA.body;
+                var bodyB = fixtureB.body;
+                if (!bodyA.enabled || !bodyB.enabled) {
+                    continue;
+                }
+                if (c.filterFlag) {
+                    if (bodyB.shouldCollide(bodyA) == false) {
+                        var cNuke = c;
+                        this.destroy(cNuke);
+                        continue;
+                    }
+                    if (ContactManager.shouldCollide(fixtureA, fixtureB) == false) {
+                        var cNuke = c;
+                        this.destroy(cNuke);
+                        continue;
+                    }
+                    if (this.onContactFilter != null && this.onContactFilter(fixtureA, fixtureB) == false) {
+                        var cNuke = c;
+                        this.destroy(cNuke);
+                        continue;
+                    }
+                    c.filterFlag = false;
+                }
+                var activeA = bodyA.isAwake && bodyA.bodyType != physics.BodyType.static;
+                var activeB = bodyB.isAwake && bodyB.bodyType != physics.BodyType.static;
+                if (activeA == false && activeB == false) {
+                    if (physics.Defined.USE_ACTIVE_CONTACT_SET) {
+                        this.activeContacts.delete(c);
+                    }
+                    continue;
+                }
+                var proxyIdA = fixtureA.proxies[indexA].proxyId;
+                var proxyIdB = fixtureB.proxies[indexB].proxyId;
+                var overlap = this.broadPhase.testOverlap(proxyIdA, proxyIdB);
+                if (overlap == false) {
+                    var cNuke = c;
+                    this.destroy(cNuke);
+                    continue;
+                }
+                c.update(this);
+            }
+        };
+        ContactManager.shouldCollide = function (fixtrueA, fixtureB) {
+            if (physics.Settings.useFPECollisionCategories) {
+                if ((fixtrueA.collisionGroup == fixtureB.collisionGroup) && fixtrueA.collisionGroup != 0 &&
+                    fixtureB.collisionGroup != 0)
+                    return false;
+                if (Number(((fixtrueA.collisionCategories & fixtureB.collidesWith) == physics.Category.none)) &
+                    Number(((fixtureB.collisionCategories & fixtrueA.collidesWith) == physics.Category.none)))
+                    return false;
+                if (fixtrueA.isFixtureIgnored(fixtureB) || fixtureB.isFixtureIgnored(fixtrueA))
+                    return false;
+                return true;
+            }
+            if (fixtrueA.collisionGroup == fixtureB.collisionGroup && fixtrueA.collisionGroup != 0)
+                return fixtrueA.collisionGroup > 0;
+            var collide = (fixtrueA.collidesWith & fixtureB.collisionCategories) != 0 &&
+                (fixtrueA.collisionCategories & fixtureB.collidesWith) != 0;
+            if (collide) {
+                if (fixtrueA.isFixtureIgnored(fixtureB) || fixtureB.isFixtureIgnored(fixtrueA))
+                    return false;
+            }
+            return collide;
+        };
         return ContactManager;
     }());
     physics.ContactManager = ContactManager;
@@ -2861,9 +3656,20 @@ var physics;
             this.awakeBodyList = [];
             this.islandSet = new Set();
             this.TOISet = new Set();
-            // this._queryAABBCallbackWrpper = this.queryAABBCallbackWrapper;
+            this._queryAABBCallbackWrpper = this.queryAABBCallbackWrapper;
+            this._rayCastCallbackWrapper = this.raycastCallbackWrapper;
             this.gravity = gravity;
         }
+        Object.defineProperty(World.prototype, "proxyCount", {
+            /**
+             * 获取广相代理的数量
+             */
+            get: function () {
+                return this.contactManager.broadPhase.proxyCount;
+            },
+            enumerable: true,
+            configurable: true
+        });
         Object.defineProperty(World.prototype, "contactList", {
             /**
              * 获取世界contact列表。
@@ -2876,9 +3682,66 @@ var physics;
             enumerable: true,
             configurable: true
         });
+        World.prototype.processChanges = function () {
+        };
+        World.prototype.addBody = function (body) {
+            console.assert(!this._bodyAddList.has(body), "You are adding the same body more than once.");
+            if (!this._bodyAddList.has(body))
+                this._bodyAddList.add(body);
+        };
+        World.prototype.removeBody = function (body) {
+            console.assert(!this._bodyRemoveList.has(body), "The body is already marked for removal. You are removing the body more than once.");
+            if (!this._bodyRemoveList.has(body))
+                this._bodyRemoveList.add(body);
+            if (this.awakeBodySet.has(body))
+                this.awakeBodySet.delete(body);
+        };
         World.prototype.queryAABBCallbackWrapper = function (proxyId) {
-            // let proxy = this.contactManager.broadPhase.
-            // TODO getProxy\
+            var proxy = this.contactManager.broadPhase.getProxy(proxyId);
+            return this._queryAABBCallback(proxy.fixture);
+        };
+        World.prototype.raycastCallbackWrapper = function (rayCastInput, proxyId) {
+            var proxy = this.contactManager.broadPhase.getProxy(proxyId);
+            var fixture = proxy.fixture;
+            var index = proxy.childIndex;
+            var output;
+            var hit = fixture.rayCast(output, rayCastInput, index);
+            if (hit) {
+                var fraction = output.fraction;
+                var point = rayCastInput.point1.scale(1 - fraction).add(rayCastInput.point2.scale(fraction));
+                return this._rayCastCallback(fixture, point, output.normal, fraction);
+            }
+            return rayCastInput.maxFraction;
+        };
+        World.prototype.step = function (dt) {
+            if (!this.enabled)
+                return;
+            if (physics.Settings.enableDiagnostics)
+                this._watch.start();
+            this.processChanges();
+            if (physics.Settings.enableDiagnostics)
+                this.addRemoveTime = this._watch.getTime();
+            if (this._worldHasNewFixture) {
+                this.contactManager.findNewContacts();
+                this._worldHasNewFixture = false;
+            }
+            if (physics.Settings.enableDiagnostics)
+                this.newContactsTime = this._watch.getTime() - this.addRemoveTime;
+            var step = new physics.TimeStep();
+            step.inv_dt = dt > 0 ? 1 / dt : 0;
+            step.dt = dt;
+            step.dtRatio = this._invDt0 * dt;
+            for (var i = 0; i < this.controllerList.length; i++)
+                this.controllerList[i].update(dt);
+            if (physics.Settings.enableDiagnostics)
+                this.controllersUpdateTime = this._watch.getTime() - (this.addRemoveTime + this.newContactsTime);
+            this.contactManager.collide();
+            if (physics.Settings.enableDiagnostics)
+                this.ContactsUpdateTime = this._watch.getTime() - (this.addRemoveTime + this.newContactsTime + this.controllersUpdateTime);
+            // TODO: solve
+        };
+        World.prototype.clear = function () {
+            this.processChanges();
         };
         return World;
     }());
@@ -2920,6 +3783,52 @@ var physics;
             var shapeA = this.fixtureA.shape;
             var shapeB = this.fixtureB.shape;
             // TODO; worldManifold.initialize
+        };
+        Contact.prototype.reset = function (fA, indexA, fB, indexB) {
+            this.enabled = true;
+            this.isTouching = false;
+            this.islandFlag = false;
+            this.filterFlag = false;
+            this.toiFlag = false;
+            this.fixtureA = fA;
+            this.fixtureB = fB;
+            this.childIndexA = indexA;
+            this.childIndexB = indexB;
+            this.manifold.pointCount = 0;
+            this._nodeA.contact = null;
+            this._nodeA.prev = null;
+            this._nodeA.next = null;
+            this._nodeA.other = null;
+            this._nodeB.contact = null;
+            this._nodeB.prev = null;
+            this._nodeB.next = null;
+            this._nodeB.other = null;
+            this._toiCount = 0;
+            if (this.fixtureA != null && this.fixtureB != null) {
+                this.friction = physics.Settings.mixFriction(this.fixtureA.friction, this.fixtureB.friction);
+                this.restitution = physics.Settings.mixRestitution(this.fixtureA.restitution, this.fixtureB.restitution);
+            }
+            this.tangentSpeed = 0;
+        };
+        Contact.prototype.update = function (contactManager) {
+            var bodyA = this.fixtureA.body;
+            var bodyB = this.fixtureB.body;
+            if (this.fixtureA == null || this.fixtureB == null)
+                return;
+            var oldManifold = this.manifold;
+            this.enabled = true;
+            var touching = false;
+            var wasTouching = this.isTouching;
+            var sensor = this.fixtureA.isSensor || this.fixtureB.isSensor;
+            if (sensor) {
+                var shapeA = this.fixtureA.shape;
+                var shapeB = this.fixtureB.shape;
+                touching = physics.Collision.testOverlap(shapeA, this.childIndexA, shapeB, this.childIndexB, bodyA._xf, bodyB._xf);
+                this.manifold.pointCount = 0;
+            }
+            else {
+                // TODO: evluate
+            }
         };
         Contact.prototype.destroy = function () {
             // TODO: use_active_contact_set
@@ -3086,4 +3995,76 @@ var physics;
         return Joint;
     }());
     physics.Joint = Joint;
+})(physics || (physics = {}));
+var physics;
+(function (physics) {
+    var FSWorld = /** @class */ (function (_super) {
+        __extends(FSWorld, _super);
+        function FSWorld(gravity) {
+            if (gravity === void 0) { gravity = new es.Vector2(0, 9.82); }
+            var _this = _super.call(this) || this;
+            _this.world = new physics.World(gravity);
+            return _this;
+        }
+        FSWorld.prototype.onEnabled = function () {
+            this.world.enabled = true;
+        };
+        FSWorld.prototype.onDisabled = function () {
+            this.world.enabled = false;
+        };
+        FSWorld.prototype.onRemovedFromScene = function () {
+            this.world.clear();
+            this.world = null;
+        };
+        FSWorld.prototype.update = function () {
+            this.world.step(es.Time.deltaTime);
+        };
+        return FSWorld;
+    }(es.SceneComponent));
+    physics.FSWorld = FSWorld;
+})(physics || (physics = {}));
+var physics;
+(function (physics) {
+    var FSRigidBody = /** @class */ (function (_super) {
+        __extends(FSRigidBody, _super);
+        function FSRigidBody() {
+            var _this = _super !== null && _super.apply(this, arguments) || this;
+            _this._bodyDef = new physics.FSBodyDef();
+            _this._joints = [];
+            return _this;
+        }
+        FSRigidBody.prototype.update = function () {
+        };
+        return FSRigidBody;
+    }(es.Component));
+    physics.FSRigidBody = FSRigidBody;
+})(physics || (physics = {}));
+var physics;
+(function (physics) {
+    var FSJoint = /** @class */ (function (_super) {
+        __extends(FSJoint, _super);
+        function FSJoint() {
+            return _super !== null && _super.apply(this, arguments) || this;
+        }
+        return FSJoint;
+    }(es.Component));
+    physics.FSJoint = FSJoint;
+})(physics || (physics = {}));
+var physics;
+(function (physics) {
+    var FSBodyDef = /** @class */ (function () {
+        function FSBodyDef() {
+            this.bodyType = physics.BodyType.static;
+            this.angularVelocity = 0;
+            this.linearDamping = 0;
+            this.angularDampint = 0;
+            this.isSleepingAllowed = true;
+            this.isAwake = true;
+            this.gravityScale = 1;
+            this.mass = 0;
+            this.inertia = 0;
+        }
+        return FSBodyDef;
+    }());
+    physics.FSBodyDef = FSBodyDef;
 })(physics || (physics = {}));

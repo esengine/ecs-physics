@@ -1,4 +1,9 @@
 declare module physics {
+    class Defined {
+        static USE_ACTIVE_CONTACT_SET: boolean;
+    }
+}
+declare module physics {
     enum Category {
         none = 0,
         all,
@@ -157,6 +162,11 @@ declare module physics {
          * 此方法标记与主体关联的所有contact以进行过滤
          */
         refilter(): void;
+        registerFixture(): void;
+        rayCast(output: RayCastOutput, input: RayCastInput, childIndex: number): boolean;
+        destroy(): void;
+        createProxies(broadPhase: DynamicTreeBroadPhase, xf: Transform): void;
+        destroyProxies(broadPhase: DynamicTreeBroadPhase): void;
     }
 }
 declare module physics {
@@ -164,6 +174,12 @@ declare module physics {
         static maxFloat: number;
         static epsilon: number;
         static pi: number;
+        /**
+         * 启用Diagnostics会导致引擎收集计时信息。
+         * 您可以查看解析contact、解析CCD和更新控制器所花的时间。
+         * 注意：如果您使用的是显示性能计数器的调试视图，则可能需要启用此功能。
+         */
+        static enableDiagnostics: boolean;
         /**
          * Farseer Physics Engine与Box2d相比具有不同的fixture过滤方法。
          * 引擎中同时包含FPE和Box2D过滤。
@@ -184,6 +200,10 @@ declare module physics {
          */
         static defaultFixtureIgnoreCCDWith: Category;
         /**
+         * 这用于在动态树中增加AABBs。这允许代理在不触发树调整的情况下少量移动。这是以米为单位的。
+         */
+        static readonly aabbExtension: number;
+        /**
          * 用作碰撞和约束公差的小长度。
          * 通常，它被选择为在数值上有意义，但在视觉上却无关紧要
          */
@@ -203,6 +223,10 @@ declare module physics {
          * 在给定随机输入的情况下，这会使引擎更稳定，但是如果多边形的创建速度更为重要，则可能需要将其设置为false。
          */
         static useConvexHullPolygons: boolean;
+        /**
+         * 定义GJK算法的最大迭代次数
+         */
+        static readonly maxGJKIterations: number;
         static mixFriction(friction1: number, friction2: number): number;
         static mixRestitution(restitution1: number, restitution2: number): number;
     }
@@ -333,7 +357,7 @@ declare module physics {
         readonly q2: AABB;
         readonly q3: AABB;
         readonly q4: AABB;
-        constructor(min: es.Vector2, max: es.Vector2);
+        constructor(min?: es.Vector2, max?: es.Vector2);
         /**
          * 验证边界已排序。 边界是有效数字（不是NaN）
          * @returns
@@ -344,6 +368,7 @@ declare module physics {
          * @param aabb
          */
         combine(aabb: AABB): void;
+        combine2(aabb1: AABB, aabb2: AABB): void;
         /**
          * 该aabb是否包含提供的AABB
          * @param aabb
@@ -357,6 +382,10 @@ declare module physics {
          */
         static testOverlap(a: AABB, b: AABB): boolean;
     }
+    class Collision {
+        static _input: DistanceInput;
+        static testOverlap(shapeA: Shape, indexA: number, shapeB: Shape, indexB: number, xfA: Transform, xfB: Transform): boolean;
+    }
 }
 declare module physics {
     /**
@@ -366,6 +395,31 @@ declare module physics {
         radius: number;
         vertices: Vertices;
         set(shape: Shape, index: number): void;
+    }
+    class Distance {
+        static gjkCalls: number;
+        static gjkIters: number;
+        static gjkMaxIters: number;
+        static computeDistance(output: DistanceOutput, input: DistanceInput): SimplexCache;
+    }
+    class DistanceInput {
+        proxyA: DistanceProxy;
+        proxyB: DistanceProxy;
+        transformA: Transform;
+        transformB: Transform;
+        useRadii: boolean;
+    }
+    class DistanceOutput {
+        distance: number;
+        iterations: number;
+        pointA: es.Vector2;
+        pointB: es.Vector2;
+    }
+    class SimplexCache {
+        count: number;
+        indexA: FixedArray3<number>;
+        indexB: FixedArray3<number>;
+        metric: number;
     }
 }
 declare module physics {
@@ -421,10 +475,24 @@ declare module physics {
          * @param aabb
          * @param userData
          */
-        addProxy(aabb: AABB, userData: FixtureProxy): void;
+        addProxy(aabb: AABB, userData: FixtureProxy): number;
+        removeProxy(proxyId: number): void;
+        moveProxy(proxyId: number, aabb: AABB, displacement: es.Vector2): boolean;
+        getUserData(proxyId: number): FixtureProxy;
+        getFatAABB(proxyId: number): AABB;
+        allocateNode(): number;
+        freeNode(nodeId: number): void;
+        insertLeaf(leaf: number): void;
+        removeLeaf(leaf: number): void;
+        balance(iA: number): number;
     }
 }
 declare module physics {
+    class Pair {
+        proxyIdA: number;
+        proxyIdB: number;
+        compareTo(other: Pair): 0 | 1 | -1;
+    }
     /**
      * 广义阶段用于计算对并执行体积查询和射线投射。
      * 这个广义阶段不会持久存在对。
@@ -432,6 +500,30 @@ declare module physics {
      * 客户端可以使用新的对并跟踪后续的重叠。
      */
     class DynamicTreeBroadPhase {
+        readonly proxyCount: number;
+        readonly treeQuality: number;
+        readonly treeBalance: number;
+        readonly treeHeight: number;
+        static readonly nullProxy: number;
+        _moveBuffer: number[];
+        _moveCapacity: number;
+        _moveCount: number;
+        _pairBuffer: Pair[];
+        _pairCapacity: number;
+        _pairCount: number;
+        _proxyCount: number;
+        _queryCallback: (id: number) => boolean;
+        _queryProxyId: number;
+        _tree: DynamicTree;
+        constructor();
+        addProxy(proxy: FixtureProxy): number;
+        removeProxy(proxyId: number): void;
+        touchProxy(proxyId: number): void;
+        bufferMove(proxyId: number): void;
+        unBufferMove(proxyId: number): void;
+        queryCallback(proxyId: number): boolean;
+        getProxy(proxyId: number): FixtureProxy;
+        testOverlap(proxyIdA: number, proxyIdB: number): boolean;
     }
 }
 declare module physics {
@@ -673,6 +765,13 @@ declare module physics {
         get(index: number): T;
         set(index: number, value: T): void;
     }
+    class FixedArray3<T> {
+        _value0: T;
+        _value1: T;
+        _value2: T;
+        get(index: number): T;
+        set(index: number, value: T): void;
+    }
 }
 declare module physics {
     /**
@@ -769,11 +868,11 @@ declare module physics {
         getYAxis(): es.Vector2;
     }
     class MathUtils {
-        static mul(q: Rot, v: es.Vector2): es.Vector2;
-        static mul_tv(t: Transform, v: es.Vector2): es.Vector2;
-        static mul_mv(a: Mat22, v: es.Vector2): es.Vector2;
-        static mul_rr(q: Rot, r: Rot): Rot;
-        static mul_rv(q: Rot, v: es.Vector2): es.Vector2;
+        static mul(a: Transform, b: es.Vector2): es.Vector2;
+        static mul(a: Rot, b: es.Vector2): es.Vector2;
+        static mul(a: Mat22, b: es.Vector2): es.Vector2;
+        static mul(a: Rot, b: Rot): Rot;
+        static mul(a: Rot, b: es.Vector2): es.Vector2;
         static cross(a: es.Vector2, b: es.Vector2): number;
     }
     /**
@@ -1158,6 +1257,8 @@ declare module physics {
         resetDynamics(): void;
         createFixture(shape: Shape, userData?: any): Fixture;
         destroyFixture(fixture: Fixture): void;
+        resetMassData(): void;
+        shouldCollide(other: Body): boolean;
     }
 }
 declare module physics {
@@ -1195,7 +1296,7 @@ declare module physics {
         /** 创建contact时触发  */
         onBeginContact: beginContactDelegate[];
         /** Contact管理器使用的过滤器 */
-        onContactFilter: collisionFilterDelegate[];
+        onContactFilter: collisionFilterDelegate;
         /** 删除contact时触发  */
         onEndContact: endContactDelegate[];
         /** 当broadphase检测到两个fixture彼此靠近时触发 */
@@ -1208,6 +1309,8 @@ declare module physics {
         addPair(proxyA: FixtureProxy, proxyB: FixtureProxy): void;
         findNewContacts(): void;
         destroy(contact: Contact): void;
+        collide(): void;
+        static shouldCollide(fixtrueA: Fixture, fixtureB: Fixture): boolean;
     }
 }
 declare module physics {
@@ -1254,6 +1357,7 @@ declare module physics {
         /**
          * 获取广相代理的数量
          */
+        readonly proxyCount: number;
         /**
          * 更改全局重力向量
          */
@@ -1298,10 +1402,10 @@ declare module physics {
         _bodyRemoveList: Set<Body>;
         _jointAddList: Set<Joint>;
         _jointRemoveList: Set<Joint>;
-        _queryAABBCallback: (fixture: Fixture, r: boolean) => void;
-        _queryAABBCallbackWrpper: (a: number, r: boolean) => void;
-        _rayCastCallback: (fixture: Fixture, a: es.Vector2, b: es.Vector2, c: number, d: number) => void;
-        _rayCastCallbackWrapper: (input: RayCastInput, a: number, b: number) => void;
+        _queryAABBCallback: (fixture: Fixture) => boolean;
+        _queryAABBCallbackWrpper: (a: number) => boolean;
+        _rayCastCallback: (fixture: Fixture, a: es.Vector2, b: es.Vector2, c: number) => number;
+        _rayCastCallbackWrapper: (input: RayCastInput, a: number) => number;
         _input: TOIInput;
         _myFixture: Fixture;
         _point1: es.Vector2;
@@ -1311,7 +1415,13 @@ declare module physics {
         _contactPool: Contact[];
         _worldHasNewFixture: boolean;
         constructor(gravity: es.Vector2);
-        queryAABBCallbackWrapper(proxyId: number): void;
+        processChanges(): void;
+        addBody(body: Body): void;
+        removeBody(body: Body): void;
+        queryAABBCallbackWrapper(proxyId: number): boolean;
+        raycastCallbackWrapper(rayCastInput: RayCastInput, proxyId: number): number;
+        step(dt: number): void;
+        clear(): void;
     }
 }
 declare module physics {
@@ -1385,6 +1495,8 @@ declare module physics {
         resetRestitution(): void;
         resetFriction(): void;
         getWorldManifold(normal: es.Vector2, points: FixedArray2<es.Vector2>): void;
+        reset(fA: Fixture, indexA: number, fB: Fixture, indexB: number): void;
+        update(contactManager: ContactManager): void;
         destroy(): void;
     }
     /**
@@ -1537,5 +1649,45 @@ declare module physics {
         abstract getReacionTorque(invDt: number): number;
         protected wakeBodies(): void;
         isFixedType(): boolean;
+    }
+}
+declare module physics {
+    class FSWorld extends es.SceneComponent {
+        world: World;
+        constructor(gravity?: es.Vector2);
+        onEnabled(): void;
+        onDisabled(): void;
+        onRemovedFromScene(): void;
+        update(): void;
+    }
+}
+declare module physics {
+    class FSRigidBody extends es.Component implements es.IUpdatable {
+        body: Body;
+        _bodyDef: FSBodyDef;
+        _ignoreTransformChanges: boolean;
+        _joints: FSJoint[];
+        update(): void;
+    }
+}
+declare module physics {
+    abstract class FSJoint extends es.Component {
+    }
+}
+declare module physics {
+    class FSBodyDef {
+        bodyType: BodyType;
+        linearVelocity: es.Vector2;
+        angularVelocity: number;
+        linearDamping: number;
+        angularDampint: number;
+        isBullet: boolean;
+        isSleepingAllowed: boolean;
+        isAwake: boolean;
+        fixedRotation: boolean;
+        ignoreGravity: boolean;
+        gravityScale: number;
+        mass: number;
+        inertia: number;
     }
 }

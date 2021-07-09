@@ -285,9 +285,8 @@ module physics {
             }
 
             let broadPhase = world.contactManager.broadPhase;
-            // for (let i = 0; i < this.proxyCount; ++ i)
-                // broadPhase
-            // TODO: touchProxy
+            for (let i = 0; i < this.proxyCount; ++ i)
+                broadPhase.touchProxy(this.proxies[i].proxyId);
         }
 
         registerFixture() {
@@ -296,8 +295,47 @@ module physics {
 
             if (this.body.enabled) {
                 let broadPhase = this.body._world.contactManager.broadPhase;
-                this.cre
+                this.createProxies(broadPhase, this.body._xf);
             }
+
+            this.body.fixtureList.push(this);
+
+            if (this.shape._density > 0)
+                this.body.resetMassData();
+
+            this.body._world._worldHasNewFixture = true;
+
+            if (this.body._world.onFixtureAdded != null)
+                this.body._world.onFixtureAdded.forEach(fn => fn(this));
+        }
+
+        public rayCast(output: RayCastOutput, input: RayCastInput, childIndex: number) {
+            return this.shape.rayCast(output, input, this.body._xf, childIndex);
+        }
+
+        public destroy() {
+            if (this.shape.shapeType == ShapeType.polygon)
+                (this.shape as PolygonShape).vertices.attackedToBody = false;
+
+            console.assert(this.proxyCount == 0);
+
+            this.proxies = null;
+            this.shape = null;
+
+            this.userData = null;
+            this.beforeCollision = null;
+            this.onCollision = null;
+            this.onSeperation = null;
+            this.afterCollision = null;
+
+            if(this.body._world.onFixtureRemoved != null) {
+                this.body._world.onFixtureRemoved.forEach(fn => fn(this));
+            }
+
+            this.body._world.onFixtureAdded = null;
+            this.body._world.onFixtureRemoved = null;
+            this.onSeperation = null;
+            this.onCollision = null;
         }
 
         public createProxies(broadPhase: DynamicTreeBroadPhase, xf: Transform) {
@@ -319,8 +357,11 @@ module physics {
 
         public destroyProxies(broadPhase: DynamicTreeBroadPhase) {
             for (let i = 0; i < this.proxyCount; ++ i) {
-                broadPhase.remo
+                broadPhase.removeProxy(this.proxies[i].proxyId);
+                this.proxies[i].proxyId = -1;
             }
+
+            this.proxyCount = 0;
         }
     }
 }

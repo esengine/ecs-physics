@@ -16,9 +16,9 @@ module physics {
         /**
          * 获取广相代理的数量
          */
-        // public get proxyCount() {
-        //     return this.contactManager.broadPhase.proxyCount;
-        // }
+        public get proxyCount() {
+            return this.contactManager.broadPhase.proxyCount;
+        }
 
         /**
          * 更改全局重力向量
@@ -78,10 +78,10 @@ module physics {
         _jointAddList: Set<Joint> = new Set();
         _jointRemoveList: Set<Joint> = new Set();
 
-        _queryAABBCallback: (fixture: Fixture, r: boolean) => void;
-        _queryAABBCallbackWrpper: (a: number, r: boolean) => void;
-        _rayCastCallback: (fixture: Fixture, a: es.Vector2, b: es.Vector2, c: number, d: number) => void;
-        _rayCastCallbackWrapper: (input: RayCastInput, a: number, b: number) => void;
+        _queryAABBCallback: (fixture: Fixture) => boolean;
+        _queryAABBCallbackWrpper: (a: number) => boolean;
+        _rayCastCallback: (fixture: Fixture, a: es.Vector2, b: es.Vector2, c: number) => number;
+        _rayCastCallbackWrapper: (input: RayCastInput, a: number) => number;
 
         _input: TOIInput = new TOIInput();
         _myFixture: Fixture;
@@ -108,13 +108,94 @@ module physics {
             
             this.TOISet = new Set();
 
-            // this._queryAABBCallbackWrpper = this.queryAABBCallbackWrapper;
+            this._queryAABBCallbackWrpper = this.queryAABBCallbackWrapper;
+            this._rayCastCallbackWrapper = this.raycastCallbackWrapper;
             this.gravity = gravity;
         }
 
+        public processChanges() {
+
+        }
+
+        public addBody(body: Body) {
+            console.assert(!this._bodyAddList.has(body), "You are adding the same body more than once.");
+
+            if (!this._bodyAddList.has(body))
+                this._bodyAddList.add(body);
+        }
+
+        public removeBody(body: Body) {
+            console.assert(!this._bodyRemoveList.has(body), "The body is already marked for removal. You are removing the body more than once.");
+
+            if (!this._bodyRemoveList.has(body))
+                this._bodyRemoveList.add(body);
+
+            if (this.awakeBodySet.has(body))
+                this.awakeBodySet.delete(body);
+        }
+
         queryAABBCallbackWrapper(proxyId: number) {
-            // let proxy = this.contactManager.broadPhase.
-            // TODO getProxy\
+            let proxy = this.contactManager.broadPhase.getProxy(proxyId);
+            return this._queryAABBCallback(proxy.fixture);
+        }
+
+        raycastCallbackWrapper(rayCastInput: RayCastInput, proxyId: number): number {
+            const proxy = this.contactManager.broadPhase.getProxy(proxyId);
+            const fixture = proxy.fixture;
+            const index = proxy.childIndex;
+            let output: RayCastOutput;
+            const hit = fixture.rayCast(output, rayCastInput, index);
+
+            if (hit) {
+                const fraction = output.fraction;
+                const point = rayCastInput.point1.scale(1 - fraction).add(rayCastInput.point2.scale(fraction));
+                return this._rayCastCallback(fixture, point, output.normal, fraction);
+            }
+
+            return rayCastInput.maxFraction;
+        }
+
+        public step(dt: number) {
+            if (!this.enabled)
+                return;
+
+            if (Settings.enableDiagnostics)
+                this._watch.start();
+
+            this.processChanges();
+
+            if (Settings.enableDiagnostics)
+                this.addRemoveTime = this._watch.getTime();
+
+            if (this._worldHasNewFixture) {
+                this.contactManager.findNewContacts();
+                this._worldHasNewFixture = false;
+            }
+
+            if (Settings.enableDiagnostics)
+                this.newContactsTime = this._watch.getTime() - this.addRemoveTime;
+
+            let step: TimeStep = new TimeStep();
+            step.inv_dt = dt > 0 ? 1 / dt : 0;
+            step.dt = dt;
+            step.dtRatio = this._invDt0 * dt;
+
+            for (let i = 0; i < this.controllerList.length; i ++)
+                this.controllerList[i].update(dt);
+
+            if (Settings.enableDiagnostics)
+                this.controllersUpdateTime = this._watch.getTime() - (this.addRemoveTime + this.newContactsTime);
+
+            this.contactManager.collide();
+
+            if (Settings.enableDiagnostics)
+                this.ContactsUpdateTime = this._watch.getTime() - (this.addRemoveTime + this.newContactsTime + this.controllersUpdateTime);
+
+            // TODO: solve
+        }
+
+        public clear() {
+            this.processChanges();
         }
     }
 }

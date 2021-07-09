@@ -6,6 +6,12 @@ module physics {
         public static pi = 3.14159265359;
 
         /**
+         * 启用Diagnostics会导致引擎收集计时信息。
+         * 您可以查看解析contact、解析CCD和更新控制器所花的时间。
+         * 注意：如果您使用的是显示性能计数器的调试视图，则可能需要启用此功能。
+         */
+        public static enableDiagnostics: boolean = true;
+        /**
          * Farseer Physics Engine与Box2d相比具有不同的fixture过滤方法。 
          * 引擎中同时包含FPE和Box2D过滤。 
          * 如果要从FPE的早期版本升级，请将其设置为true，将defaultFixtureCollisionCategories设置为Category.All
@@ -49,6 +55,10 @@ module physics {
          * 在给定随机输入的情况下，这会使引擎更稳定，但是如果多边形的创建速度更为重要，则可能需要将其设置为false。 
          */
         public static useConvexHullPolygons = true;
+        /**
+         * 定义GJK算法的最大迭代次数
+         */
+        public static readonly maxGJKIterations = 20;
 
         public static mixFriction(friction1: number, friction2: number) {
             return Math.sqrt(friction1 * friction2);
