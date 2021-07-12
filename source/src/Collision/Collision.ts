@@ -199,7 +199,7 @@ module physics {
             this.upperBound = es.Vector2.max(this.upperBound, aabb.upperBound);
         }
 
-        public combine2(aabb1: AABB, aabb2: AABB) {
+        public combineT(aabb1: AABB, aabb2: AABB) {
             this.lowerBound = es.Vector2.min(aabb1.lowerBound, aabb2.lowerBound);
             this.upperBound = es.Vector2.max(aabb1.upperBound, aabb2.upperBound);
         }

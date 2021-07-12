@@ -28,19 +28,19 @@ module physics {
         }
 
         public testPoint(transform: Transform, point: es.Vector2) {
-            let center = es.Vector2.add(transform.p, MathUtils.mul_rv(transform.q, this.position));
-            let d = es.Vector2.subtract(point, center);
-            return es.Vector2.dot(d, d) <= this._2radius;
+            let center = es.Vector2.add(transform.p, MathUtils.mul(transform.q, this.position));
+            let d = point.sub(center);
+            return d.dot(d) <= this._2radius;
         }
 
         public rayCast(output: RayCastOutput, input: RayCastInput, transform: Transform, childIndex: number) {
-            let pos = es.Vector2.add(transform.p, MathUtils.mul_rv(transform.q, this.position));
-            let s = es.Vector2.subtract(input.point1, pos);
-            let b = es.Vector2.dot(s, s) - this._2radius;
+            let pos = es.Vector2.add(transform.p, MathUtils.mul(transform.q, this.position));
+            let s = input.point1.sub(pos);
+            let b = s.dot(s) - this._2radius;
 
-            let r = es.Vector2.subtract(input.point2, input.point1);
-            let c = es.Vector2.dot(s, r);
-            let rr = es.Vector2.dot(r, r);
+            let r = input.point2.sub(input.point1);
+            let c = s.dot(r);
+            let rr = r.dot(r);
             let sigma = c * c - rr * b;
 
             if (sigma < 0 || rr < Settings.epsilon)
@@ -52,7 +52,7 @@ module physics {
                 a /= rr;
                 output.fraction = a;
 
-                output.normal = es.Vector2.add(s, es.Vector2.multiplyScaler(r, a));
+                output.normal = es.Vector2.add(s, r.scale(a));
                 es.Vector2Ext.normalize(output.normal);
                 return true;
             }
@@ -61,7 +61,7 @@ module physics {
         }
 
         public computeAABB(aabb: AABB, transform: Transform, childIndex: number) {
-            let p = es.Vector2.add(transform.p, MathUtils.mul_rv(transform.q, this.position));
+            let p = es.Vector2.add(transform.p, MathUtils.mul(transform.q, this.position));
             aabb.lowerBound = new es.Vector2(p.x- this.radius, p.y - this.radius);
             aabb.upperBound = new es.Vector2(p.x + this.radius, p.y + this.radius);
         }
@@ -72,15 +72,15 @@ module physics {
             this.massData.mass = this.density * area;
             this.massData.centroid = this.position.clone();
 
-            this.massData.inertia = this.massData.mass * (0.5 * this._2radius + es.Vector2.dot(this.position, this.position));
+            this.massData.inertia = this.massData.mass * (0.5 * this._2radius + this.position.dot(this.position));
         }
 
         public computeSubmergedArea(normal: es.Vector2, offset: number, xf: Transform, sc: es.Vector2) {
             sc.x = 0;
             sc.y = 0;
 
-            let p = MathUtils.mul_tv(xf, this.position);
-            let l = -(es.Vector2.dot(normal, p) - offset);
+            let p = MathUtils.mul(xf, this.position);
+            let l = -(normal.dot(p) - offset);
             if (l < -this.radius + Settings.epsilon) {
                 return 0;
             }

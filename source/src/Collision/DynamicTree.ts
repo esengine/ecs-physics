@@ -239,7 +239,7 @@ module physics {
                 const area = this._nodes[index].aabb.perimeter;
 
                 const combinedAABB = new AABB();
-                combinedAABB.combine2(this._nodes[index].aabb, leafAABB);
+                combinedAABB.combineT(this._nodes[index].aabb, leafAABB);
                 const combinedArea = combinedAABB.perimeter;
 
                 const cost = 2 * combinedArea;
@@ -248,11 +248,11 @@ module physics {
                 let cost1 = 0;
                 if (this._nodes[child1].isLeaf()) {
                     const aabb = new AABB();
-                    aabb.combine2(leafAABB, this._nodes[child1].aabb);
+                    aabb.combineT(leafAABB, this._nodes[child1].aabb);
                     cost1 = aabb.perimeter + inheritanceCost;
                 } else {
                     const aabb = new AABB();
-                    aabb.combine2(leafAABB, this._nodes[child1].aabb);
+                    aabb.combineT(leafAABB, this._nodes[child1].aabb);
                     const oldArea = this._nodes[child1].aabb.perimeter;
                     const newArea = aabb.perimeter;
                     cost1 = (newArea - oldArea) + inheritanceCost;
@@ -261,11 +261,11 @@ module physics {
                 let cost2 = 0;
                 if (this._nodes[child2].isLeaf()) {
                     const aabb = new AABB();
-                    aabb.combine2(leafAABB, this._nodes[child2].aabb);
+                    aabb.combineT(leafAABB, this._nodes[child2].aabb);
                     cost2 = aabb.perimeter + inheritanceCost;
                 } else {
                     const aabb = new AABB();
-                    aabb.combine2(leafAABB, this._nodes[child2].aabb);
+                    aabb.combineT(leafAABB, this._nodes[child2].aabb);
                     const oldArea = this._nodes[child2].aabb.perimeter;
                     const newArea = aabb.perimeter;
                     cost2 = newArea - oldArea + inheritanceCost;
@@ -287,7 +287,7 @@ module physics {
             const newParent = this.allocateNode();
             this._nodes[newParent].parentOrNext = oldParent;
             this._nodes[newParent].userData = new FixtureProxy();
-            this._nodes[newParent].aabb.combine2(leafAABB, this._nodes[sibling].aabb);
+            this._nodes[newParent].aabb.combineT(leafAABB, this._nodes[sibling].aabb);
             this._nodes[newParent].height = this._nodes[sibling].height + 1;
 
             if (oldParent != DynamicTree.nullNode) {
@@ -320,7 +320,7 @@ module physics {
                 console.assert(child2 != DynamicTree.nullNode);
 
                 this._nodes[index].height = 1 + Math.max(this._nodes[child1].height, this._nodes[child2].height);
-                this._nodes[index].aabb.combine2(this._nodes[child1].aabb, this._nodes[child2].aabb);
+                this._nodes[index].aabb.combineT(this._nodes[child1].aabb, this._nodes[child2].aabb);
 
                 index = this._nodes[index].parentOrNext;
             }
@@ -358,7 +358,7 @@ module physics {
                     const child1 = this._nodes[index].child1;
                     const child2 = this._nodes[index].child2;
 
-                    this._nodes[index].aabb.combine2(this._nodes[child1].aabb, this._nodes[child2].aabb);
+                    this._nodes[index].aabb.combineT(this._nodes[child1].aabb, this._nodes[child2].aabb);
                     this._nodes[index].height = 1 + Math.max(this._nodes[child1].height, this._nodes[child2].height);
 
                     index = this._nodes[index].parentOrNext;
@@ -414,8 +414,8 @@ module physics {
                     C.child2 = iF;
                     A.child2 = iG;
                     G.parentOrNext = iA;
-                    A.aabb.combine2(B.aabb, G.aabb);
-                    C.aabb.combine2(A.aabb, F.aabb);
+                    A.aabb.combineT(B.aabb, G.aabb);
+                    C.aabb.combineT(A.aabb, F.aabb);
 
                     A.height = 1 + Math.max(B.height, G.height);
                     C.height = 1 + Math.max(A.height, F.height);
@@ -423,8 +423,8 @@ module physics {
                     C.child2 = iG;
                     A.child2 = iF;
                     F.parentOrNext = iA;
-                    A.aabb.combine2(B.aabb, F.aabb);
-                    C.aabb.combine2(A.aabb, G.aabb);
+                    A.aabb.combineT(B.aabb, F.aabb);
+                    C.aabb.combineT(A.aabb, G.aabb);
 
                     A.height = 1 + Math.max(B.height, F.height);
                     C.height = 1 + Math.max(A.height, G.height);

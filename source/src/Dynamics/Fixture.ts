@@ -363,5 +363,24 @@ module physics {
 
             this.proxyCount = 0;
         }
+
+        public synchronize(broadPhase: DynamicTreeBroadPhase, transform1: Transform, transform2: Transform) {
+            if (this.proxyCount == 0)
+                return;
+
+            for (let i = 0; i < this.proxyCount; ++ i) {
+                const proxy = this.proxies[i];
+
+                let aabb1 = new AABB();
+                let aabb2 = new AABB();
+                this.shape.computeAABB(aabb1, transform1, proxy.childIndex);
+                this.shape.computeAABB(aabb2, transform2, proxy.childIndex);
+
+                proxy.aabb.combineT(aabb1, aabb2);
+
+                const dispacement = transform2.p.sub(transform1.p);
+                broadPhase.moveProxy(proxy.proxyId, proxy.aabb, dispacement);
+            }
+        }
     }
 }

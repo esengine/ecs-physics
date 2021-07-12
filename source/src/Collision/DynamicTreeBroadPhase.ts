@@ -88,6 +88,12 @@ module physics {
             this.bufferMove(proxyId);
         }
 
+        public moveProxy(proxyId: number, aabb: AABB, dispacement: es.Vector2) {
+            const buffer = this._tree.moveProxy(proxyId, aabb, dispacement);
+            if (buffer)
+                this.bufferMove(proxyId);
+        }
+
         bufferMove(proxyId: number) {
             if (this._moveCount == this._moveCapacity) {
                 const oldBuffer = this._moveBuffer;

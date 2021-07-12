@@ -239,8 +239,7 @@ module physics {
 
         public set position(value: es.Vector2) {
             console.assert(!Number.isNaN(value.x) && !Number.isNaN(value.y));
-            // this.setTra
-            // TODO: setTransform
+            this.setTransform(value, this.rotation);
         }
 
         /**
@@ -260,8 +259,7 @@ module physics {
 
         public set rotation(value: number) {
             console.assert(!Number.isNaN(value));
-            // this.set
-            // TODO: setTransform
+            this.setTransform(this._xf.p, value);
         }
 
         /**
@@ -565,6 +563,26 @@ module physics {
             fixture.body = null;
 
             this.resetMassData();
+        }
+
+        public setTransform(position: es.Vector2, rotation: number) {
+            this.setTransformIgnoreContacts(position, rotation);
+            this._world.contactManager.findNewContacts();
+        }
+
+        public setTransformIgnoreContacts(position: es.Vector2, angle: number) {
+            this._xf.q.set(angle);
+            this._xf.p = position;
+
+            this._sweep.c = MathUtils.mul(this._xf, this._sweep.localCenter);
+            this._sweep.a = angle;
+
+            this._sweep.c0 = this._sweep.c;
+            this._sweep.a0 = angle;
+
+            const broadPhase = this._world.contactManager.broadPhase;
+            for (let i = 0; i < this.fixtureList.length; i ++)
+                this.fixtureList[i].synchronize(broadPhase, this._xf, this._xf);
         }
 
         public resetMassData() {

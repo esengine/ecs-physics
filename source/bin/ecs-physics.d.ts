@@ -167,6 +167,7 @@ declare module physics {
         destroy(): void;
         createProxies(broadPhase: DynamicTreeBroadPhase, xf: Transform): void;
         destroyProxies(broadPhase: DynamicTreeBroadPhase): void;
+        synchronize(broadPhase: DynamicTreeBroadPhase, transform1: Transform, transform2: Transform): void;
     }
 }
 declare module physics {
@@ -368,7 +369,7 @@ declare module physics {
          * @param aabb
          */
         combine(aabb: AABB): void;
-        combine2(aabb1: AABB, aabb2: AABB): void;
+        combineT(aabb1: AABB, aabb2: AABB): void;
         /**
          * 该aabb是否包含提供的AABB
          * @param aabb
@@ -395,6 +396,7 @@ declare module physics {
         radius: number;
         vertices: Vertices;
         set(shape: Shape, index: number): void;
+        getSupport(direction: es.Vector2): number;
     }
     class Distance {
         static gjkCalls: number;
@@ -519,6 +521,7 @@ declare module physics {
         addProxy(proxy: FixtureProxy): number;
         removeProxy(proxyId: number): void;
         touchProxy(proxyId: number): void;
+        moveProxy(proxyId: number, aabb: AABB, dispacement: es.Vector2): void;
         bufferMove(proxyId: number): void;
         unBufferMove(proxyId: number): void;
         queryCallback(proxyId: number): boolean;
@@ -873,6 +876,7 @@ declare module physics {
         static mul(a: Mat22, b: es.Vector2): es.Vector2;
         static mul(a: Rot, b: Rot): Rot;
         static mul(a: Rot, b: es.Vector2): es.Vector2;
+        static mulT(q: Rot, v: es.Vector2): es.Vector2;
         static cross(a: es.Vector2, b: es.Vector2): number;
     }
     /**
@@ -1257,6 +1261,8 @@ declare module physics {
         resetDynamics(): void;
         createFixture(shape: Shape, userData?: any): Fixture;
         destroyFixture(fixture: Fixture): void;
+        setTransform(position: es.Vector2, rotation: number): void;
+        setTransformIgnoreContacts(position: es.Vector2, angle: number): void;
         resetMassData(): void;
         shouldCollide(other: Body): boolean;
     }
@@ -1418,6 +1424,8 @@ declare module physics {
         processChanges(): void;
         addBody(body: Body): void;
         removeBody(body: Body): void;
+        addBreakableBody(breakableBody: BreakableBody): void;
+        removeBreakableBody(breakableBody: BreakableBody): void;
         queryAABBCallbackWrapper(proxyId: number): boolean;
         raycastCallbackWrapper(rayCastInput: RayCastInput, proxyId: number): number;
         step(dt: number): void;
@@ -1548,6 +1556,11 @@ declare module physics {
         _contacts: Contact[];
         _count: number;
         reset(step: TimeStep, count: number, contacts: Contact[], positions: Position[], velocities: Velocity[]): void;
+    }
+}
+declare module physics {
+    class BodyFactory {
+        static createBody(world: World, position?: es.Vector2, rotation?: number, bodyType?: BodyType, userData?: any): Body;
     }
 }
 declare module physics {

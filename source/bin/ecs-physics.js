@@ -317,6 +317,20 @@ var physics;
             }
             this.proxyCount = 0;
         };
+        Fixture.prototype.synchronize = function (broadPhase, transform1, transform2) {
+            if (this.proxyCount == 0)
+                return;
+            for (var i = 0; i < this.proxyCount; ++i) {
+                var proxy = this.proxies[i];
+                var aabb1 = new physics.AABB();
+                var aabb2 = new physics.AABB();
+                this.shape.computeAABB(aabb1, transform1, proxy.childIndex);
+                this.shape.computeAABB(aabb2, transform2, proxy.childIndex);
+                proxy.aabb.combineT(aabb1, aabb2);
+                var dispacement = transform2.p.sub(transform1.p);
+                broadPhase.moveProxy(proxy.proxyId, proxy.aabb, dispacement);
+            }
+        };
         return Fixture;
     }());
     physics.Fixture = Fixture;
@@ -576,7 +590,7 @@ var physics;
             this.lowerBound = es.Vector2.min(this.lowerBound, aabb.lowerBound);
             this.upperBound = es.Vector2.max(this.upperBound, aabb.upperBound);
         };
-        AABB.prototype.combine2 = function (aabb1, aabb2) {
+        AABB.prototype.combineT = function (aabb1, aabb2) {
             this.lowerBound = es.Vector2.min(aabb1.lowerBound, aabb2.lowerBound);
             this.upperBound = es.Vector2.max(aabb1.upperBound, aabb2.upperBound);
         };
@@ -682,6 +696,18 @@ var physics;
                     break;
             }
         };
+        DistanceProxy.prototype.getSupport = function (direction) {
+            var bestIndex = 0;
+            var bestValue = this.vertices[0].dot(direction);
+            for (var i = 1; i < this.vertices.length; ++i) {
+                var value = this.vertices[i].dot(direction);
+                if (value > bestValue) {
+                    bestIndex = i;
+                    bestValue = value;
+                }
+            }
+            return bestIndex;
+        };
         return DistanceProxy;
     }());
     physics.DistanceProxy = DistanceProxy;
@@ -736,6 +762,14 @@ var physics;
                 this.count = 1;
             }
         };
+        Simplex.prototype.writeCache = function (cache) {
+            cache.metric = this.getMetric();
+            cache.count = this.count;
+            for (var i = 0; i < this.count; ++i) {
+                cache.indexA.set(i, this.v.get(i).indexA);
+                cache.indexB.set(i, this.v.get(i).indexB);
+            }
+        };
         Simplex.prototype.getMetric = function () {
             switch (this.count) {
                 case 0:
@@ -750,6 +784,171 @@ var physics;
                 default:
                     console.assert(false);
                     return 0;
+            }
+        };
+        Simplex.prototype.solve2 = function () {
+            var w1 = this.v.get(0).w;
+            var w2 = this.v.get(1).w;
+            var e12 = w2.sub(w1);
+            var d12_2 = -w1.dot(e12);
+            if (d12_2 <= 0) {
+                var v0 = this.v.get(0);
+                v0.a = 1;
+                this.v.set(0, v0);
+                this.count = 1;
+                return;
+            }
+            var d12_1 = w2.dot(e12);
+            if (d12_1 <= 0) {
+                var v1 = this.v.get(1);
+                v1.a = 1;
+                this.v.set(1, v1);
+                this.count = 1;
+                this.v.set(0, this.v.get(1));
+                return;
+            }
+            var inv_d12 = 1 / (d12_1 + d12_2);
+            var v0_2 = this.v.get(0);
+            var v1_2 = this.v.get(1);
+            v0_2.a = d12_1 * inv_d12;
+            v1_2.a = d12_2 * inv_d12;
+            this.v.set(0, v0_2);
+            this.v.set(1, v1_2);
+            this.count = 2;
+        };
+        Simplex.prototype.solve3 = function () {
+            var w1 = this.v.get(0).w;
+            var w2 = this.v.get(1).w;
+            var w3 = this.v.get(2).w;
+            var e12 = w2.sub(w1);
+            var w1e12 = w1.dot(e12);
+            var w2e12 = w2.dot(e12);
+            var d12_1 = w2e12;
+            var d12_2 = -w1e12;
+            var e13 = w3.sub(w1);
+            var w1e13 = w1.dot(e13);
+            var w3e13 = w3.dot(e13);
+            var d13_1 = w3e13;
+            var d13_2 = -w1e13;
+            var e23 = w3.sub(w2);
+            var w2e23 = w2.dot(e23);
+            var w3e23 = w3.dot(e23);
+            var d23_1 = w3e23;
+            var d23_2 = -w2e23;
+            var n123 = physics.MathUtils.cross(e12, e13);
+            var d123_1 = n123 * physics.MathUtils.cross(w2, w3);
+            var d123_2 = n123 * physics.MathUtils.cross(w3, w1);
+            var d123_3 = n123 * physics.MathUtils.cross(w1, w2);
+            if (d12_2 <= 0 && d13_2 <= 0) {
+                var v0_1 = this.v.get(0);
+                v0_1.a = 1;
+                this.v.set(0, v0_1);
+                this.count = 1;
+                return;
+            }
+            if (d12_1 > 0 && d12_2 > 0 && d123_3 <= 0) {
+                var inv_d12 = 1 / (d12_1 + d12_2);
+                var v0_2 = this.v.get(0);
+                var v1_2 = this.v.get(1);
+                v0_2.a = d12_1 * inv_d12;
+                v1_2.a = d12_2 * inv_d12;
+                this.v.set(0, v0_2);
+                this.v.set(1, v1_2);
+                this.count = 2;
+                return;
+            }
+            if (d13_1 > 0 && d13_2 > 0 && d123_2 <= 0) {
+                var inv_d13 = 1 / (d13_1 + d13_2);
+                var v0_3 = this.v.get(0);
+                var v2_3 = this.v.get(2);
+                v0_3.a = d13_1 * inv_d13;
+                v2_3.a = d13_2 * inv_d13;
+                this.v.set(0, v0_3);
+                this.v.set(2, v2_3);
+                this.count = 2;
+                this.v.set(1, this.v.get(2));
+                return;
+            }
+            if (d12_1 <= 0 && d23_2 <= 0) {
+                var v1_4 = this.v.get(1);
+                v1_4.a = 1;
+                this.v.set(1, v1_4);
+                this.count = 1;
+                this.v.set(0, this.v.get(1));
+                return;
+            }
+            if (d13_1 <= 0 && d23_1 <= 0) {
+                var v2_5 = this.v.get(2);
+                v2_5.a = 1;
+                this.v.set(2, v2_5);
+                this.count = 1;
+                this.v.set(0, this.v.get(2));
+                return;
+            }
+            if (d23_1 > 0 && d23_2 > 0 && d123_1 <= 0) {
+                var inv_d23 = 1 / (d23_1 + d23_2);
+                var v1_6 = this.v.get(1);
+                var v2_6 = this.v.get(2);
+                v1_6.a = d23_1 * inv_d23;
+                v2_6.a = d23_2 * inv_d23;
+                this.v.set(1, v1_6);
+                this.v.set(2, v2_6);
+                this.count = 2;
+                this.v.set(0, this.v.get(2));
+                return;
+            }
+            var inv_d123 = 1 / (d123_1 + d123_2 + d123_3);
+            var v0_7 = this.v.get(0);
+            var v1_7 = this.v.get(1);
+            var v2_7 = this.v.get(2);
+            v0_7.a = d123_1 * inv_d123;
+            v1_7.a = d123_2 * inv_d123;
+            v2_7.a = d123_3 * inv_d123;
+            this.v.set(0, v0_7);
+            this.v.set(1, v1_7);
+            this.v.set(2, v2_7);
+            this.count = 3;
+        };
+        Simplex.prototype.getSearchDirection = function () {
+            switch (this.count) {
+                case 1:
+                    return this.v.get(0).w.scale(-1);
+                case 2: {
+                    var e12 = this.v.get(1).w.sub(this.v.get(0).w);
+                    var sgn = physics.MathUtils.cross(e12, this.v.get(0).w.scale(-1));
+                    if (sgn > 0) {
+                        return new es.Vector2(-e12.y, e12.x);
+                    }
+                    else {
+                        return new es.Vector2(e12.y, -e12.x);
+                    }
+                }
+                default:
+                    console.assert(false);
+                    return es.Vector2.zero;
+            }
+        };
+        Simplex.prototype.getWitnessPoints = function (pA, pB) {
+            switch (this.count) {
+                case 0:
+                    pA = es.Vector2.zero;
+                    pB = es.Vector2.zero;
+                    console.assert(false);
+                    break;
+                case 1:
+                    pA = this.v.get(0).wA;
+                    pB = this.v.get(0).wB;
+                    break;
+                case 2:
+                    pA = this.v.get(0).wA.scale(this.v.get(0).a).add(this.v.get(1).wA.scale(this.v.get(1).a));
+                    pB = this.v.get(0).wB.scale(this.v.get(0).a).add(this.v.get(1).wB.scale(this.v.get(1).a));
+                    break;
+                case 3:
+                    pA = this.v.get(0).wA.scale(this.v.get(0).a).add(this.v.get(1).wA.scale(this.v.get(1).a)).add(this.v.get(2).wA.scale(this.v.get(2).a));
+                    pB = pA;
+                    break;
+                default:
+                    throw new Error('exception');
             }
         };
         return Simplex;
@@ -776,10 +975,10 @@ var physics;
                     case 1:
                         break;
                     case 2:
-                        // TODO: solve
+                        simplex.solve2();
                         break;
                     case 3:
-                        // TODO: solve
+                        simplex.solve3();
                         break;
                     default:
                         console.assert(false);
@@ -787,6 +986,52 @@ var physics;
                 }
                 if (simplex.count == 3)
                     break;
+                var d = simplex.getSearchDirection();
+                if (d.lengthSquared() < physics.Settings.epsilon * physics.Settings.epsilon) {
+                    break;
+                }
+                var vertex = simplex.v.get(simplex.count);
+                vertex.indexA = input.proxyA.getSupport(physics.MathUtils.mulT(input.transformA.q, d.scale(-1)));
+                vertex.wA = physics.MathUtils.mul(input.transformA, input.proxyA.vertices[vertex.indexA]);
+                vertex.indexB = input.proxyB.getSupport(physics.MathUtils.mulT(input.transformB.q, d));
+                vertex.wB = physics.MathUtils.mul(input.transformB, input.proxyB.vertices[vertex.indexB]);
+                vertex.w = vertex.wB.sub(vertex.wA);
+                simplex.v.set(simplex.count, vertex);
+                ++iter;
+                if (physics.Settings.enableDiagnostics)
+                    ++this.gjkIters;
+                var duplicate = false;
+                for (var i = 0; i < saveCount; ++i) {
+                    if (vertex.indexA == saveA.get(i) && vertex.indexB == saveB.get(i)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (duplicate)
+                    break;
+                ++simplex.count;
+            }
+            if (physics.Settings.enableDiagnostics)
+                this.gjkMaxIters = Math.max(this.gjkMaxIters, iter);
+            simplex.getWitnessPoints(output.pointA, output.pointB);
+            output.distance = (output.pointA.sub(output.pointB)).magnitude();
+            output.iterations = iter;
+            simplex.writeCache(cache);
+            if (input.useRadii) {
+                var rA = input.proxyA.radius;
+                var rB = input.proxyB.radius;
+                if (output.distance > rA + rB && output.distance > physics.Settings.epsilon) {
+                    output.distance -= rA + rB;
+                    var normal = output.pointB.sub(output.pointA).normalize();
+                    output.pointA = output.pointA.add(normal.scale(rA));
+                    output.pointB = output.pointB.sub(normal.scale(rB));
+                }
+                else {
+                    var p = output.pointA.add(output.pointB).scale(0.5);
+                    output.pointA = p;
+                    output.pointB = p;
+                    output.distance = 0;
+                }
             }
             return cache;
         };
@@ -1012,19 +1257,19 @@ var physics;
                 var child2 = this._nodes[index].child2;
                 var area = this._nodes[index].aabb.perimeter;
                 var combinedAABB = new physics.AABB();
-                combinedAABB.combine2(this._nodes[index].aabb, leafAABB);
+                combinedAABB.combineT(this._nodes[index].aabb, leafAABB);
                 var combinedArea = combinedAABB.perimeter;
                 var cost = 2 * combinedArea;
                 var inheritanceCost = 2 * (combinedArea - area);
                 var cost1 = 0;
                 if (this._nodes[child1].isLeaf()) {
                     var aabb = new physics.AABB();
-                    aabb.combine2(leafAABB, this._nodes[child1].aabb);
+                    aabb.combineT(leafAABB, this._nodes[child1].aabb);
                     cost1 = aabb.perimeter + inheritanceCost;
                 }
                 else {
                     var aabb = new physics.AABB();
-                    aabb.combine2(leafAABB, this._nodes[child1].aabb);
+                    aabb.combineT(leafAABB, this._nodes[child1].aabb);
                     var oldArea = this._nodes[child1].aabb.perimeter;
                     var newArea = aabb.perimeter;
                     cost1 = (newArea - oldArea) + inheritanceCost;
@@ -1032,12 +1277,12 @@ var physics;
                 var cost2 = 0;
                 if (this._nodes[child2].isLeaf()) {
                     var aabb = new physics.AABB();
-                    aabb.combine2(leafAABB, this._nodes[child2].aabb);
+                    aabb.combineT(leafAABB, this._nodes[child2].aabb);
                     cost2 = aabb.perimeter + inheritanceCost;
                 }
                 else {
                     var aabb = new physics.AABB();
-                    aabb.combine2(leafAABB, this._nodes[child2].aabb);
+                    aabb.combineT(leafAABB, this._nodes[child2].aabb);
                     var oldArea = this._nodes[child2].aabb.perimeter;
                     var newArea = aabb.perimeter;
                     cost2 = newArea - oldArea + inheritanceCost;
@@ -1055,7 +1300,7 @@ var physics;
             var newParent = this.allocateNode();
             this._nodes[newParent].parentOrNext = oldParent;
             this._nodes[newParent].userData = new physics.FixtureProxy();
-            this._nodes[newParent].aabb.combine2(leafAABB, this._nodes[sibling].aabb);
+            this._nodes[newParent].aabb.combineT(leafAABB, this._nodes[sibling].aabb);
             this._nodes[newParent].height = this._nodes[sibling].height + 1;
             if (oldParent != DynamicTree.nullNode) {
                 if (this._nodes[oldParent].child1 == sibling) {
@@ -1084,7 +1329,7 @@ var physics;
                 console.assert(child1 != DynamicTree.nullNode);
                 console.assert(child2 != DynamicTree.nullNode);
                 this._nodes[index].height = 1 + Math.max(this._nodes[child1].height, this._nodes[child2].height);
-                this._nodes[index].aabb.combine2(this._nodes[child1].aabb, this._nodes[child2].aabb);
+                this._nodes[index].aabb.combineT(this._nodes[child1].aabb, this._nodes[child2].aabb);
                 index = this._nodes[index].parentOrNext;
             }
         };
@@ -1116,7 +1361,7 @@ var physics;
                     index = this.balance(index);
                     var child1 = this._nodes[index].child1;
                     var child2 = this._nodes[index].child2;
-                    this._nodes[index].aabb.combine2(this._nodes[child1].aabb, this._nodes[child2].aabb);
+                    this._nodes[index].aabb.combineT(this._nodes[child1].aabb, this._nodes[child2].aabb);
                     this._nodes[index].height = 1 + Math.max(this._nodes[child1].height, this._nodes[child2].height);
                     index = this._nodes[index].parentOrNext;
                 }
@@ -1165,8 +1410,8 @@ var physics;
                     C.child2 = iF;
                     A.child2 = iG;
                     G.parentOrNext = iA;
-                    A.aabb.combine2(B.aabb, G.aabb);
-                    C.aabb.combine2(A.aabb, F.aabb);
+                    A.aabb.combineT(B.aabb, G.aabb);
+                    C.aabb.combineT(A.aabb, F.aabb);
                     A.height = 1 + Math.max(B.height, G.height);
                     C.height = 1 + Math.max(A.height, F.height);
                 }
@@ -1174,8 +1419,8 @@ var physics;
                     C.child2 = iG;
                     A.child2 = iF;
                     F.parentOrNext = iA;
-                    A.aabb.combine2(B.aabb, F.aabb);
-                    C.aabb.combine2(A.aabb, G.aabb);
+                    A.aabb.combineT(B.aabb, F.aabb);
+                    C.aabb.combineT(A.aabb, G.aabb);
                     A.height = 1 + Math.max(B.height, F.height);
                     C.height = 1 + Math.max(A.height, G.height);
                 }
@@ -1275,6 +1520,11 @@ var physics;
         };
         DynamicTreeBroadPhase.prototype.touchProxy = function (proxyId) {
             this.bufferMove(proxyId);
+        };
+        DynamicTreeBroadPhase.prototype.moveProxy = function (proxyId, aabb, dispacement) {
+            var buffer = this._tree.moveProxy(proxyId, aabb, dispacement);
+            if (buffer)
+                this.bufferMove(proxyId);
         };
         DynamicTreeBroadPhase.prototype.bufferMove = function (proxyId) {
             if (this._moveCount == this._moveCapacity) {
@@ -1482,27 +1732,27 @@ var physics;
             return false;
         };
         EdgeShape.prototype.rayCast = function (output, input, transform, childIndex) {
-            var p1 = physics.MathUtils.mul_rv(transform.q, es.Vector2.subtract(input.point1, transform.p));
-            var p2 = physics.MathUtils.mul_rv(transform.q, es.Vector2.subtract(input.point2, transform.p));
-            var d = es.Vector2.subtract(p2, p1);
+            var p1 = physics.MathUtils.mul(transform.q, input.point1.sub(transform.p));
+            var p2 = physics.MathUtils.mul(transform.q, input.point2.sub(transform.p));
+            var d = p2.sub(p1);
             var v1 = this._vertex1.clone();
             var v2 = this._vertex2.clone();
-            var e = es.Vector2.subtract(v2, v1);
+            var e = v2.sub(v1);
             var normal = new es.Vector2(e.y, -e.x);
             es.Vector2Ext.normalize(normal);
-            var numerator = es.Vector2.dot(normal, es.Vector2.subtract(v1, p1));
-            var denominator = es.Vector2.dot(normal, d);
+            var numerator = normal.dot(v1.sub(p1));
+            var denominator = normal.dot(d);
             if (denominator == 0)
                 return false;
             var t = numerator / denominator;
             if (t < 0 || input.maxFraction < t)
                 return false;
-            var q = es.Vector2.add(p1, es.Vector2.multiplyScaler(d, t));
-            var r = es.Vector2.subtract(v2, v1);
-            var rr = es.Vector2.dot(r, r);
+            var q = es.Vector2.add(p1, d.scale(t));
+            var r = v2.sub(v1);
+            var rr = r.dot(r);
             if (rr == 0)
                 return false;
-            var s = es.Vector2.dot(es.Vector2.subtract(q, v1), r) / rr;
+            var s = q.sub(v1).dot(r) / rr;
             if (s < 0 || 1 < s)
                 return false;
             output.fraction = t;
@@ -1513,12 +1763,12 @@ var physics;
             return true;
         };
         EdgeShape.prototype.computeAABB = function (aabb, transform, childIndex) {
-            var v1 = physics.MathUtils.mul_tv(transform, this._vertex1);
-            var v2 = physics.MathUtils.mul_tv(transform, this._vertex2);
+            var v1 = physics.MathUtils.mul(transform, this._vertex1);
+            var v2 = physics.MathUtils.mul(transform, this._vertex2);
             var lower = es.Vector2.min(v1, v2);
             var upper = es.Vector2.max(v1, v2);
             var r = new es.Vector2(this.radius, this.radius);
-            aabb.lowerBound = es.Vector2.subtract(lower, r);
+            aabb.lowerBound = lower.sub(r);
             aabb.upperBound = es.Vector2.add(upper, r);
         };
         EdgeShape.prototype.computeProperties = function () {
@@ -1629,7 +1879,7 @@ var physics;
             for (var i = 1; i < vertices.length; ++i) {
                 var v1 = vertices[i - 1];
                 var v2 = vertices[i];
-                console.assert(es.Vector2.distanceSquared(v1, v2) > physics.Settings.linearSlop * physics.Settings.linearSlop);
+                console.assert(v1.distance(v2) > physics.Settings.linearSlop * physics.Settings.linearSlop);
             }
             this.vertices = vertices;
             if (createLoop) {
@@ -1657,8 +1907,8 @@ var physics;
             var i2 = childIndex + 1;
             if (i2 == this.vertices.length)
                 i2 = 0;
-            var v1 = physics.MathUtils.mul_tv(transform, this.vertices[i1]);
-            var v2 = physics.MathUtils.mul_tv(transform, this.vertices[i2]);
+            var v1 = physics.MathUtils.mul(transform, this.vertices[i1]);
+            var v2 = physics.MathUtils.mul(transform, this.vertices[i2]);
             aabb.lowerBound = es.Vector2.min(v1, v2);
             aabb.upperBound = es.Vector2.max(v1, v2);
         };
@@ -1723,17 +1973,17 @@ var physics;
             configurable: true
         });
         CircleShape.prototype.testPoint = function (transform, point) {
-            var center = es.Vector2.add(transform.p, physics.MathUtils.mul_rv(transform.q, this.position));
-            var d = es.Vector2.subtract(point, center);
-            return es.Vector2.dot(d, d) <= this._2radius;
+            var center = es.Vector2.add(transform.p, physics.MathUtils.mul(transform.q, this.position));
+            var d = point.sub(center);
+            return d.dot(d) <= this._2radius;
         };
         CircleShape.prototype.rayCast = function (output, input, transform, childIndex) {
-            var pos = es.Vector2.add(transform.p, physics.MathUtils.mul_rv(transform.q, this.position));
-            var s = es.Vector2.subtract(input.point1, pos);
-            var b = es.Vector2.dot(s, s) - this._2radius;
-            var r = es.Vector2.subtract(input.point2, input.point1);
-            var c = es.Vector2.dot(s, r);
-            var rr = es.Vector2.dot(r, r);
+            var pos = es.Vector2.add(transform.p, physics.MathUtils.mul(transform.q, this.position));
+            var s = input.point1.sub(pos);
+            var b = s.dot(s) - this._2radius;
+            var r = input.point2.sub(input.point1);
+            var c = s.dot(r);
+            var rr = r.dot(r);
             var sigma = c * c - rr * b;
             if (sigma < 0 || rr < physics.Settings.epsilon)
                 return false;
@@ -1741,14 +1991,14 @@ var physics;
             if (0 <= a && a <= input.maxFraction * rr) {
                 a /= rr;
                 output.fraction = a;
-                output.normal = es.Vector2.add(s, es.Vector2.multiplyScaler(r, a));
+                output.normal = es.Vector2.add(s, r.scale(a));
                 es.Vector2Ext.normalize(output.normal);
                 return true;
             }
             return false;
         };
         CircleShape.prototype.computeAABB = function (aabb, transform, childIndex) {
-            var p = es.Vector2.add(transform.p, physics.MathUtils.mul_rv(transform.q, this.position));
+            var p = es.Vector2.add(transform.p, physics.MathUtils.mul(transform.q, this.position));
             aabb.lowerBound = new es.Vector2(p.x - this.radius, p.y - this.radius);
             aabb.upperBound = new es.Vector2(p.x + this.radius, p.y + this.radius);
         };
@@ -1757,13 +2007,13 @@ var physics;
             this.massData.area = area;
             this.massData.mass = this.density * area;
             this.massData.centroid = this.position.clone();
-            this.massData.inertia = this.massData.mass * (0.5 * this._2radius + es.Vector2.dot(this.position, this.position));
+            this.massData.inertia = this.massData.mass * (0.5 * this._2radius + this.position.dot(this.position));
         };
         CircleShape.prototype.computeSubmergedArea = function (normal, offset, xf, sc) {
             sc.x = 0;
             sc.y = 0;
-            var p = physics.MathUtils.mul_tv(xf, this.position);
-            var l = -(es.Vector2.dot(normal, p) - offset);
+            var p = physics.MathUtils.mul(xf, this.position);
+            var l = -(normal.dot(p) - offset);
             if (l < -this.radius + physics.Settings.epsilon) {
                 return 0;
             }
@@ -2282,6 +2532,9 @@ var physics;
             if (a instanceof Rot && b instanceof es.Vector2) {
                 return new es.Vector2(a.c * b.x + a.s * b.y, -a.s * b.x + a.c * b.y);
             }
+        };
+        MathUtils.mulT = function (q, v) {
+            return new es.Vector2(q.c * v.x + q.s * v.y, -q.s * v.x + q.c * v.y);
         };
         MathUtils.cross = function (a, b) {
             return a.x * b.y - a.y * b.x;
@@ -3013,8 +3266,7 @@ var physics;
             },
             set: function (value) {
                 console.assert(!Number.isNaN(value.x) && !Number.isNaN(value.y));
-                // this.setTra
-                // TODO: setTransform
+                this.setTransform(value, this.rotation);
             },
             enumerable: true,
             configurable: true
@@ -3038,8 +3290,7 @@ var physics;
             },
             set: function (value) {
                 console.assert(!Number.isNaN(value));
-                // this.set
-                // TODO: setTransform
+                this.setTransform(this._xf.p, value);
             },
             enumerable: true,
             configurable: true
@@ -3299,6 +3550,21 @@ var physics;
             fixture.body = null;
             this.resetMassData();
         };
+        Body.prototype.setTransform = function (position, rotation) {
+            this.setTransformIgnoreContacts(position, rotation);
+            this._world.contactManager.findNewContacts();
+        };
+        Body.prototype.setTransformIgnoreContacts = function (position, angle) {
+            this._xf.q.set(angle);
+            this._xf.p = position;
+            this._sweep.c = physics.MathUtils.mul(this._xf, this._sweep.localCenter);
+            this._sweep.a = angle;
+            this._sweep.c0 = this._sweep.c;
+            this._sweep.a0 = angle;
+            var broadPhase = this._world.contactManager.broadPhase;
+            for (var i = 0; i < this.fixtureList.length; i++)
+                this.fixtureList[i].synchronize(broadPhase, this._xf, this._xf);
+        };
         Body.prototype.resetMassData = function () {
             this._mass = 0;
             this._invMass = 0;
@@ -3422,9 +3688,15 @@ var physics;
                 var shape = oldFixture.shape.clone();
                 var userData = oldFixture.userData;
                 this.mainBody.destroyFixture(oldFixture);
-                // TODO: BodyFactory
+                var body = physics.BodyFactory.createBody(this._world, this.mainBody.position, this.mainBody.rotation, physics.BodyType.dynamic, this.mainBody.userData);
+                var newFixture = body.createFixture(shape);
+                newFixture.userData = userData;
+                this.parts[i] = newFixture;
+                body.angularVelocity = this._angularVelocitiesCache[i];
+                body.linearVelocity = this._velocitiesCache[i];
             }
-            // TODO: removeBody
+            this._world.removeBody(this.mainBody);
+            this._world.removeBreakableBody(this);
         };
         return BreakableBody;
     }());
@@ -3696,6 +3968,13 @@ var physics;
             if (this.awakeBodySet.has(body))
                 this.awakeBodySet.delete(body);
         };
+        World.prototype.addBreakableBody = function (breakableBody) {
+            this.breakableBodyList.push(breakableBody);
+        };
+        World.prototype.removeBreakableBody = function (breakableBody) {
+            console.assert(this.breakableBodyList.indexOf(breakableBody) != -1);
+            this.breakableBodyList.splice(this.breakableBodyList.indexOf(breakableBody), 1);
+        };
         World.prototype.queryAABBCallbackWrapper = function (proxyId) {
             var proxy = this.contactManager.broadPhase.getProxy(proxyId);
             return this._queryAABBCallback(proxy.fixture);
@@ -3910,6 +4189,22 @@ var physics;
         return ContactSolver;
     }());
     physics.ContactSolver = ContactSolver;
+})(physics || (physics = {}));
+var physics;
+(function (physics) {
+    var BodyFactory = /** @class */ (function () {
+        function BodyFactory() {
+        }
+        BodyFactory.createBody = function (world, position, rotation, bodyType, userData) {
+            if (position === void 0) { position = new es.Vector2(); }
+            if (rotation === void 0) { rotation = 0; }
+            if (bodyType === void 0) { bodyType = physics.BodyType.static; }
+            if (userData === void 0) { userData = null; }
+            return new physics.Body(world, position, rotation, bodyType, userData);
+        };
+        return BodyFactory;
+    }());
+    physics.BodyFactory = BodyFactory;
 })(physics || (physics = {}));
 var physics;
 (function (physics) {

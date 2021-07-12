@@ -82,7 +82,7 @@ module physics {
                 let v1 = vertices[i - 1];
                 let v2 = vertices[i];
 
-                console.assert(es.Vector2.distanceSquared(v1, v2) > Settings.linearSlop * Settings.linearSlop);
+                console.assert(v1.distance(v2) > Settings.linearSlop * Settings.linearSlop);
             }
 
             this.vertices = vertices;
@@ -121,8 +121,8 @@ module physics {
             if (i2 == this.vertices.length)
                 i2 = 0;
 
-            let v1 = MathUtils.mul_tv(transform, this.vertices[i1]);
-            let v2 = MathUtils.mul_tv(transform, this.vertices[i2]);
+            let v1 = MathUtils.mul(transform, this.vertices[i1]);
+            let v2 = MathUtils.mul(transform, this.vertices[i2]);
 
             aabb.lowerBound = es.Vector2.min(v1, v2);
             aabb.upperBound = es.Vector2.max(v1, v2);

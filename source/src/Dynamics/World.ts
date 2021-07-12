@@ -134,6 +134,15 @@ module physics {
                 this.awakeBodySet.delete(body);
         }
 
+        public addBreakableBody(breakableBody: BreakableBody) {
+            this.breakableBodyList.push(breakableBody);
+        }
+
+        public removeBreakableBody(breakableBody: BreakableBody) {
+            console.assert(this.breakableBodyList.indexOf(breakableBody) != -1);
+            this.breakableBodyList.splice(this.breakableBodyList.indexOf(breakableBody), 1);
+        }
+
         queryAABBCallbackWrapper(proxyId: number) {
             let proxy = this.contactManager.broadPhase.getProxy(proxyId);
             return this._queryAABBCallback(proxy.fixture);

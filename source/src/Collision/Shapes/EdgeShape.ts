@@ -82,8 +82,8 @@ module physics {
             let normal = new es.Vector2(e.y, -e.x);
             es.Vector2Ext.normalize(normal);
 
-            let numerator = es.Vector2.dot(normal, es.Vector2.subtract(v1, p1));
-            let denominator = es.Vector2.dot(normal, d);
+            let numerator = normal.dot(v1.sub(p1));
+            let denominator = normal.dot(d);
 
             if (denominator == 0)
                 return false;
@@ -92,14 +92,14 @@ module physics {
             if (t < 0 || input.maxFraction < t)
                 return false;
 
-            let q = es.Vector2.add(p1, es.Vector2.multiplyScaler(d, t));
+            let q = es.Vector2.add(p1, d.scale(t));
 
-            let r = es.Vector2.subtract(v2, v1);
-            let rr = es.Vector2.dot(r, r);
+            let r = v2.sub(v1);
+            let rr = r.dot(r);
             if (rr == 0)
                 return false;
 
-            let s = es.Vector2.dot(es.Vector2.subtract(q, v1), r) / rr;
+            let s = q.sub(v1).dot(r) / rr;
             if (s < 0 || 1 < s)
                 return false;
 
@@ -113,14 +113,14 @@ module physics {
         }
 
         public computeAABB(aabb: AABB, transform: Transform, childIndex: number) {
-            let v1 = MathUtils.mul_tv(transform, this._vertex1);
-            let v2 = MathUtils.mul_tv(transform, this._vertex2);
+            let v1 = MathUtils.mul(transform, this._vertex1);
+            let v2 = MathUtils.mul(transform, this._vertex2);
 
             let lower = es.Vector2.min(v1, v2);
             let upper = es.Vector2.max(v1, v2);
 
             let r = new es.Vector2(this.radius, this.radius)
-            aabb.lowerBound = es.Vector2.subtract(lower, r);
+            aabb.lowerBound = lower.sub(r);
             aabb.upperBound = es.Vector2.add(upper, r);
         }
 

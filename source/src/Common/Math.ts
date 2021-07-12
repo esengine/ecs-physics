@@ -190,6 +190,10 @@ module physics {
             }
         }
 
+        public static mulT(q: Rot, v: es.Vector2) {
+            return new es.Vector2(q.c * v.x + q.s * v.y, -q.s * v.x + q.c * v.y);
+        }
+
         public static cross(a: es.Vector2, b: es.Vector2) {
             return a.x * b.y - a.y * b.x;
         }

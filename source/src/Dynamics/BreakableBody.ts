@@ -73,10 +73,17 @@ module physics {
 
                 this.mainBody.destroyFixture(oldFixture);
 
-                // TODO: BodyFactory
+                const body = BodyFactory.createBody(this._world, this.mainBody.position, this.mainBody.rotation, BodyType.dynamic, this.mainBody.userData);
+                const newFixture = body.createFixture(shape);
+                newFixture.userData = userData;
+                this.parts[i] = newFixture;
+
+                body.angularVelocity = this._angularVelocitiesCache[i];
+                body.linearVelocity = this._velocitiesCache[i];
             }
 
-            // TODO: removeBody
+            this._world.removeBody(this.mainBody);
+            this._world.removeBreakableBody(this);
         }
     }
 }
